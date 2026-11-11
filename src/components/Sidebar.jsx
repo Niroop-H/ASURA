@@ -22,11 +22,11 @@ import {
 const NAV_LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard },
   { href: '/query', label: 'Intelligence Query', icon: MessageSquare },
-  { href: '/tracking', label: 'Target Tracking', icon: Crosshair },
-  { href: '/map', label: 'Geospatial Radar', icon: Map },
+  { href: '/tracking', label: 'Observations', icon: Crosshair },
+  { href: '/map', label: 'Geospatial View', icon: Map },
   { href: '/sources', label: 'Source Registry', icon: Database },
   { href: '/keys', label: 'API Key Holders', icon: Key },
-  { href: '/compliance', label: 'Defense Compliance', icon: FileCheck },
+  { href: '/compliance', label: 'Assessment Status', icon: FileCheck },
   { href: '/settings', label: 'System Governance', icon: Settings },
 ];
 
@@ -82,7 +82,7 @@ export default function Sidebar() {
 
           {/* Classification Tag */}
           <div className="px-5 py-1.5 bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono text-center text-slate-600 font-semibold tracking-wider">
-            NATO UNCLASSIFIED // CUI
+            DEVELOPMENT BUILD
           </div>
 
           {/* Navigation Links */}
@@ -113,16 +113,16 @@ export default function Sidebar() {
         {/* Sidebar Footer Posture & Readiness */}
         <div className="p-4 border-t border-slate-200 bg-slate-50/60 text-xs font-mono space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-[11px]">
-            <span>SYSTEM READINESS</span>
-            <span className="flex items-center gap-1 text-emerald-700 font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              ONLINE
+            <span>DATA VERIFICATION</span>
+            <span className="flex items-center gap-1 text-amber-700 font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              NOT ASSESSED
             </span>
           </div>
 
           <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t border-slate-200">
-            <span>SEC-POSTURE: DEFCON 5</span>
-            <span className="text-slate-600">NIST 800-53</span>
+            <span>No readiness assessment</span>
+            <span className="text-slate-600"></span>
           </div>
         </div>
       </aside>

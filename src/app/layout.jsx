@@ -13,8 +13,8 @@ export default function RootLayout({ children }) {
         {/* Top Operational Classification Banner */}
         <div className="w-full bg-slate-900 text-slate-200 text-[10px] font-mono tracking-widest uppercase text-center py-1 px-4 z-50 flex items-center justify-between border-b border-slate-800">
           <span className="hidden sm:inline">DEFENSE INTELLIGENCE INFRASTRUCTURE</span>
-          <span className="font-bold text-sky-400">NATO UNCLASSIFIED // REL TO NATO / CUI</span>
-          <span className="hidden sm:inline">MIL-STD-2525D COMPLIANT</span>
+          <span className="font-bold text-sky-400">DEVELOPMENT BUILD — DATA INTEGRATIONS INCOMPLETE</span>
+          <span className="hidden sm:inline">ASSESSMENT NOT COMPLETED</span>
         </div>
 
         <div className="flex flex-1 w-full">

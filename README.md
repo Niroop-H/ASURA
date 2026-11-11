@@ -1,3 +1,8 @@
+> **Current status (2026-11-11): development build, not operationally validated.**
+> Earlier screenshots and feature descriptions below reflect prototype UI and are not evidence of implemented capabilities.
+> Sample tracks, measurements, readiness scores, and compliance assertions have been withdrawn.
+> Evidence queries return HTTP 503 until acquisition is implemented. See `ASURA_HANDOFF.md` and `docs/TEST_STATUS.md`.
+
 # ASURA — Defense Intelligence Platform
 ### Automated Strategic Unified Reconnaissance & Analytics System
 

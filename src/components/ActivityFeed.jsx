@@ -26,7 +26,7 @@ export default function ActivityFeed({ activities = [] }) {
       <div className="defense-card p-5">
         <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2 font-mono">
           <Clock size={15} className="text-slate-400" />
-          Real-Time Operational Audit Feed
+          Application activity
         </h3>
         <p className="text-xs text-slate-400 text-center py-6 font-mono">No recent activity logged</p>
       </div>
@@ -38,10 +38,10 @@ export default function ActivityFeed({ activities = [] }) {
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-2 font-mono">
           <Clock size={15} className="text-sky-600" />
-          Real-Time Operational Audit Feed
+          Application activity
         </h3>
         <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-          <Radio size={11} className="text-emerald-600 animate-pulse" /> Live Stream
+          <Radio size={11} className="text-emerald-600 animate-pulse" /> Recorded events
         </span>
       </div>
 

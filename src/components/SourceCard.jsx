@@ -61,9 +61,9 @@ export default function SourceCard({ source, onToggle, onDelete }) {
           </span>
 
           <div className="flex items-center gap-1.5 font-mono text-[11px]">
-            <span className={`w-2 h-2 rounded-full ${source.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+            <span className={`w-2 h-2 rounded-full ${source.enabled ? 'bg-amber-500' : 'bg-slate-400'}`} />
             <span className="text-slate-600 font-semibold capitalize">
-              {source.enabled ? 'Active' : 'Disabled'}
+              {source.enabled ? 'Enabled · unverified' : 'Disabled'}
             </span>
           </div>
         </div>

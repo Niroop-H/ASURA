@@ -36,13 +36,13 @@ export default function Header({ title, subtitle }) {
         {/* UTC Zulu Timestamp */}
         <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 font-mono text-xs shadow-xs">
           <Clock size={13} className="text-slate-400" />
-          <span>{currentTime || 'Synchronizing UTC...'}</span>
+          <span>{currentTime || 'Loading local clock...'}</span>
         </div>
 
         {/* Defense Posture Badge */}
-        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-mono font-semibold shadow-xs">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>DEFCON 5 READY</span>
+        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-mono font-semibold shadow-xs">
+          <span className="w-2 h-2 rounded-full bg-amber-500" />
+          <span>DEVELOPMENT BUILD</span>
         </div>
       </div>
     </header>

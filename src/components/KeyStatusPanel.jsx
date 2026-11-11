@@ -115,7 +115,7 @@ export default function KeyStatusPanel() {
           </div>
           <div className="flex flex-wrap gap-4 pt-2 text-xs font-mono">
             <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
-              <CheckCircle size={13} /> {summary.configured} Active
+              <CheckCircle size={13} /> {summary.configured} Configured
             </span>
             <span className="inline-flex items-center gap-1 text-rose-700 font-semibold">
               <XCircle size={13} /> {summary.missing_required || 0} Missing Required
