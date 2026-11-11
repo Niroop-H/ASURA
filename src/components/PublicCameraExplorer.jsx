@@ -218,6 +218,11 @@ export default function PublicCameraExplorer(){
  const [selectedWallSlot,setSelectedWallSlot]=useState(null);
  const [autoLoading,setAutoLoading]=useState(false);
  const [autoError,setAutoError]=useState('');
+ const [manualTitle,setManualTitle]=useState('');
+ const [manualOperator,setManualOperator]=useState('');
+ const [manualUrl,setManualUrl]=useState('');
+ const [manualAuthorized,setManualAuthorized]=useState(false);
+ const [manualError,setManualError]=useState('');
  // Refresh signed Windy image URLs before their short free-tier expiration.
  useEffect(()=>{
   const timer=setInterval(()=>setRefresh(x=>x+1),8*60*1000);
@@ -284,6 +289,31 @@ export default function PublicCameraExplorer(){
   if(target<0)target=0;
   setWallSlots(prev=>prev.map((item,i)=>i===target?camera:item));
   setSelectedWallSlot(null);
+ };
+ const addOperatorStream=event=>{
+  event.preventDefault();
+  setManualError('');
+  if(!manualAuthorized){setManualError('Confirm public display permission from the camera operator.');return;}
+  try{
+   const url=new URL(manualUrl.trim());
+   const host=url.hostname.toLowerCase();
+   const privateName=host==='localhost'||host.endsWith('.local')||host.endsWith('.internal')||
+     host.endsWith('.localhost')||/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(host);
+   if(url.protocol!=='https:'||url.username||url.password||privateName||
+      !host.includes('.')||!url.pathname.toLowerCase().endsWith('.m3u8')){
+     throw new Error('Enter a public HTTPS HLS playlist (.m3u8), not a private camera address, RTSP feed or APK.');
+   }
+   if(!manualTitle.trim()||!manualOperator.trim())throw new Error('Enter a camera title and the publishing operator.');
+   if(/[?&](password|access_token|api_key|apikey|secret)=/i.test(url.search))
+     throw new Error('Do not paste passwords or private API tokens into an embedded playback URL.');
+   assignToWall({
+    id:'manual-'+url.href,title:manualTitle.trim().slice(0,100),
+    provider:'Operator-supplied HLS (unverified)',operator:manualOperator.trim().slice(0,100),
+    sourceType:'hls',videoUrl:url.href,imageUrl:null,
+    note:'Supplied by the operator; access, freshness and public display permissions are not verified by ASURA.',
+   });
+   setManualUrl('');setManualTitle('');setManualOperator('');setManualAuthorized(false);
+  }catch(e){setManualError(e.message||'Stream URL rejected');}
  };
  const autoFillWall=async()=>{
   setAutoLoading(true);setAutoError('');
@@ -385,6 +415,39 @@ export default function PublicCameraExplorer(){
     onRemove={index=>setWallSlots(previous=>previous.map((camera,i)=>i===index?null:camera))}
     onClear={()=>{setWallSlots(Array(6).fill(null));setSelectedWallSlot(null);setAutoError('');}}
     onAutofill={autoFillWall} autoLoading={autoLoading} autoError={autoError}/>
+  <details className="defense-card p-4">
+    <summary className="cursor-pointer font-semibold text-sm">Connect an operator-approved public live stream (India or any other country)</summary>
+    <p className="text-xs text-slate-600 mt-3">
+      If an Indian traffic authority, tourism provider or another authorized operator supplies a public HTTPS HLS .m3u8 URL with embedding rights, you can display it directly in a wall slot. No APK or private CCTV credentials are needed. This browser-only connection is not stored or verified by ASURA; CORS restrictions may prevent playback.
+    </p>
+    <form onSubmit={addOperatorStream} className="mt-3 space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <label className="text-xs">Camera name
+          <input value={manualTitle} onChange={e=>setManualTitle(e.target.value)} maxLength={100} required
+            className="block mt-1 w-full border rounded p-2" placeholder="e.g. Public traffic cam"/>
+        </label>
+        <label className="text-xs">Publishing operator
+          <input value={manualOperator} onChange={e=>setManualOperator(e.target.value)} maxLength={100} required
+            className="block mt-1 w-full border rounded p-2" placeholder="Agency / public webcam provider"/>
+        </label>
+        <label className="text-xs">Public HTTPS HLS playlist URL
+          <input value={manualUrl} onChange={e=>setManualUrl(e.target.value)} inputMode="url" required
+            className="block mt-1 w-full border rounded p-2" placeholder="https://operator.example/live/playlist.m3u8"/>
+        </label>
+      </div>
+      <label className="inline-flex gap-2 items-center text-xs">
+        <input type="checkbox" checked={manualAuthorized} onChange={e=>setManualAuthorized(e.target.checked)}/>
+        I have permission to display this public operator-provided stream in ASURA.
+      </label>
+      <div className="flex gap-3 items-center flex-wrap">
+        <button type="submit" className="bg-sky-700 text-white rounded px-4 py-2 text-xs">
+          Add authorized stream to wall
+        </button>
+        <span className="text-xs text-slate-500">Choose a wall slot first if you want to replace a specific camera.</span>
+      </div>
+      {manualError&&<p role="alert" className="text-xs text-amber-900 bg-amber-50 p-3">{manualError}</p>}
+    </form>
+  </details>
   {mapShown&&<CameraPinMap cameras={cameras} onSelect={setSelected} selectedId={selected?.id}/>}
   <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
    <section className="defense-card xl:col-span-1 overflow-hidden">
