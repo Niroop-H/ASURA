@@ -97,6 +97,7 @@ function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,on
   <div className="aspect-video relative flex-1 min-h-0 bg-black">
    {live?<ResilientHlsPlayer key={camera.id+':'+revision}
       camera={camera} enabled={!paused&&!allPaused} fit={fit} jumpToLiveTick={goLiveTick}
+      startupDelayMs={index*300}
       onHealth={handleHealth}
       onTerminal={handleTerminal}/>:
     <button type="button" onClick={()=>onSelect(index)}
@@ -121,6 +122,15 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
  const root=useRef(null);
  const [wallFullscreen,setWallFullscreen]=useState(false);
  const [pausedAll,setPausedAll]=useState(false);
+ const startAllVideos=()=>{
+  if(pausedAll)setPausedAll(false);
+  // play() is called synchronously from user activation, not after a promise.
+  for(const video of root.current?.querySelectorAll('video')||[]){
+   video.muted=true;
+   try{const promise=video.play();promise?.catch?.(()=>{});}
+   catch{}
+  }
+ };
  const wakeRef=useRef(null);
  const [wakeRequested,setWakeRequested]=useState(false);
  const [wakeActive,setWakeActive]=useState(false);
@@ -188,6 +198,11 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
     <p className="text-xs text-slate-500">Six numbered slots · {liveCount} HLS URLs assigned · {counts.playing} decoding frames · {counts.connecting} connecting · {counts.offline} unavailable. Muted playback.</p>
    </div>
    <div className="flex flex-wrap gap-2">
+    <button type="button" onClick={startAllVideos}
+      className="rounded border border-emerald-300 bg-emerald-50 text-emerald-900 px-3 py-2 text-xs inline-flex items-center gap-1"
+      title="Manually start assigned public HLS feeds using a real browser click">
+      <Play size={14}/> Start all
+    </button>
     <button type="button" onClick={onAutofill} disabled={autoLoading}
       className="rounded bg-sky-700 text-white px-3 py-2 text-xs disabled:opacity-50">
       {autoLoading?'Checking six playlists…':'Fill with 6 available live streams'}
