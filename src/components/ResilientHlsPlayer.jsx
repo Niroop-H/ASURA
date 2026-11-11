@@ -3,6 +3,36 @@ import {useEffect,useRef,useState} from 'react';
 
 // One shared HLS.js instance factory, six independent MediaSource engines.
 const HLS_SRC='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';
+// Caltrans Wowza sometimes emits decimal, dotted RFC-6381 codec IDs such as
+// avc1.100.31 (instead of avc1.64001f) and avc1.66.41 (avc1.420029).
+// Chromium MSE rejects these, although the actual MPEG-TS video is H.264.
+// Normalize ONLY these recognized legacy IDs, only for operator Caltrans HLS.
+export function normalizeCaltransCodecManifest(text){
+ if(typeof text!=='string'||!text.startsWith('#EXTM3U'))return text;
+ return text.replace(/(CODECS=["'])([^"'\r\n]+)(["'])/g,(full,begin,codecs,end)=>{
+  const fixed=codecs.replace(/\bavc1\.(\d{2,3})\.(\d{1,3})\b/gi,(codec,profile,level)=>{
+   const p=Number(profile),l=Number(level);
+   if(![66,77,88,100,110,122,244].includes(p)||l<10||l>62)return codec;
+   return 'avc1.'+p.toString(16).padStart(2,'0')+'00'+l.toString(16).padStart(2,'0');
+  });
+  return begin+fixed+end;
+ });
+}
+function caltransPlaylistLoader(Hls){
+ const Base=Hls.DefaultConfig.loader;
+ return class NormalizingCaltransPlaylistLoader extends Base{
+  load(context,config,callbacks){
+   const patched={...callbacks,onSuccess:(response,stats,request,networkDetails)=>{
+    if(typeof response?.data==='string'&&
+       typeof context?.url==='string'&&
+       /^https:\/\/wzmedia\.dot\.ca\.gov\//i.test(context.url))
+      response.data=normalizeCaltransCodecManifest(response.data);
+    callbacks.onSuccess(response,stats,request,networkDetails);
+   }};
+   return super.load(context,config,patched);
+  }
+ };
+}
 function getHls(){
  if(window.Hls)return Promise.resolve(window.Hls);
  if(window.__asuraWallHls)return window.__asuraWallHls;
@@ -48,10 +78,10 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
  };
  useEffect(()=>{listenersRef.current={onHealth,onTerminal}},[onHealth,onTerminal]);
  useEffect(()=>{
-  let alive=true,hls=null,monitor=null,scheduled=null,live=null,startupTimer=null;
+  let alive=true,hls=null,monitor=null,scheduled=null,live=null,startupTimer=null,frameCallbackId=null;
   let progressAt=Date.now(),startAt=Date.now(),previousPosition=-1,networkRecoveries=0,mediaRecoveries=0;
   let lastResumeAttempt=0,stableSince=0,hadVideo=false,mediaReady=false;
-  let autoplayDenied=false;
+  let autoplayDenied=false,decodeErrors=0,lastPlayPromise=null,frameCount=0;
   let failed=false,rendering=false,lastLabel='';
   const video=videoRef.current;
   const emit=(kind,label,age=null)=>{
@@ -70,15 +100,31 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
   };
   if(!enabled){emit('paused','Paused by operator');return ()=>{alive=false;};}
   if(!video||!camera?.videoUrl){emit('error','Missing video stream');return ()=>{alive=false;};}
+  const markProgress=()=>{
+   if(!alive||failed)return;
+   progressAt=Date.now();rendering=true;hadVideo=true;
+   if(!stableSince)stableSince=Date.now();
+   if(Date.now()-stableSince>15000){networkRecoveries=0;mediaRecoveries=0;decodeErrors=0;}
+   emit(live===false?'recorded':'playing',
+    live===false?'Recorded HLS frames advancing':live===true?
+      'LIVE HLS · decoded frames advancing · capture delay unknown':
+      'Video frames advancing · source latency unverified',0);
+  };
+  // Chromium supports video-frame callbacks. They establish that actual
+  // decoded frames arrived, rather than trusting currentTime alone.
+  const onFrame=(_now,metadata)=>{
+   if(!alive)return;
+   frameCount++;
+   markProgress();
+   if(video.requestVideoFrameCallback)frameCallbackId=video.requestVideoFrameCallback(onFrame);
+  };
   const onTimeUpdate=()=>{
    if(!alive)return;
    const t=video.currentTime;
    if(Number.isFinite(t)&&Math.abs(t-previousPosition)>.05){
-    previousPosition=t;progressAt=Date.now();rendering=true;hadVideo=true;
-    if(!stableSince)stableSince=Date.now();
-    if(Date.now()-stableSince>15000){networkRecoveries=0;mediaRecoveries=0;}
-    emit(live===false?'recorded':'playing',
-     live===false?'Playing recorded HLS':live===true?'Live HLS decoding · capture delay unknown':'Video decoding · source latency unverified',0);
+    previousPosition=t;
+    // Safari and older browsers do not implement requestVideoFrameCallback.
+    if(!video.requestVideoFrameCallback)markProgress();
    }
   };
   const onPlaying=()=>{
@@ -94,13 +140,14 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
   };
   const onEnded=()=>{if(!failed)terminal('Operator stream ended unexpectedly');};
   const tryPlay=(cause)=>{
-   if(!alive||failed||!mediaReady||!video||autoplayDenied)return;
+   if(!alive||failed||!mediaReady||!video||autoplayDenied||lastPlayPromise)return;
    video.muted=true;
    video.defaultMuted=true;
    let attempt;
    try{attempt=video.play();}
    catch(e){attempt=Promise.reject(e);}
-   if(attempt&&typeof attempt.catch==='function'){
+   if(attempt&&typeof attempt.then==='function'){
+    lastPlayPromise=attempt;
     attempt.catch(e=>{
      if(!alive||failed)return;
      const type=String(e?.name||'PlaybackError');
@@ -110,11 +157,13 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
      }else if(type==='AbortError'){
       emit('buffering','Play interrupted (AbortError) · retrying stream');
      }else if(type==='NotSupportedError'){
-      emit('recovering','Media format unsupported (NotSupportedError) · checking decoder');
+      decodeErrors++;
+      emit('recovering','Video decoder rejected stream ('+decodeErrors+'/3) · attempting recovery');
+      if(decodeErrors>=3)terminal('Video codec/manifest incompatible with browser');
      }else{
       emit('recovering','Play failed: '+type+' · '+String(e?.message||cause).slice(0,80));
      }
-    });
+    }).finally(()=>{if(lastPlayPromise===attempt)lastPlayPromise=null;});
    }
   };
   const autoResume=()=>{
@@ -140,6 +189,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    autoResume();
   };
   video.addEventListener('timeupdate',onTimeUpdate);
+  if(video.requestVideoFrameCallback)frameCallbackId=video.requestVideoFrameCallback(onFrame);
   video.addEventListener('playing',onPlaying);
   video.addEventListener('waiting',onWaiting);
   video.addEventListener('error',onError);
@@ -170,7 +220,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    const age=Math.max(0,Math.round((Date.now()-progressAt)/1000));
    if(rendering&&age<=12){
     emit(live===false?'recorded':'playing',
-     live===false?'Recorded video progressing':live===true?'Live playlist · video progressing':'Video progressing · capture delay unverified',age);
+     live===false?'Recorded frames advancing':live===true?'Live playlist · decoded frames advancing':'Decoded frames advancing · capture delay unverified',age);
    }else if(Date.now()-startAt<16000&&!rendering){
     emit('buffering','Waiting for first decoded frames…',age);
    }else if(age>25&&networkRecoveries>=3){
@@ -204,6 +254,10 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    if(!alive)return;
    if(!Hls.isSupported()){terminal('Browser does not support HLS decoding');return;}
    hls=new Hls({
+    // Repair malformed decimal CODECS only on Caltrans playlists. The H.264
+    // TS bytes and their original URLs are downloaded directly from Caltrans.
+    ...(camera.provider==='Caltrans CWWP2'?
+      {pLoader:caltransPlaylistLoader(Hls)}:{}),
     enableWorker:true,
     startLevel:0,
     capLevelToPlayerSize:true,
@@ -220,14 +274,13 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    });
    hls.on(Hls.Events.MANIFEST_PARSED,()=>{
     if(!alive)return;
-    mediaReady=true;
-    emit('buffering','HLS manifest loaded · waiting for video frames');
-    tryPlay('HLS manifest parsed');
+    // A parsed playlist does not yet mean the browser has playable bytes.
+    emit('buffering','HLS manifest parsed · buffering first video segment');
    });
    hls.on(Hls.Events.FRAG_BUFFERED,()=>{
     if(!alive||failed)return;
     mediaReady=true;
-    if(video.paused&&!autoplayDenied)tryPlay('HLS segment buffered');
+    if(video.paused&&!autoplayDenied)tryPlay('First HLS video segment buffered');
    });
    hls.on(Hls.Events.ERROR,(_name,error)=>{
     if(!alive||failed||!error?.fatal)return; // hls.js handles non-fatal errors internally
@@ -257,6 +310,8 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    if(monitor)clearInterval(monitor);
    if(scheduled)clearTimeout(scheduled);
    video.removeEventListener('timeupdate',onTimeUpdate);
+   if(frameCallbackId!==null&&video.cancelVideoFrameCallback)
+     video.cancelVideoFrameCallback(frameCallbackId);
    video.removeEventListener('playing',onPlaying);
    video.removeEventListener('waiting',onWaiting);
    video.removeEventListener('error',onError);
