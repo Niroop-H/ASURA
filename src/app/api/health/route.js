@@ -17,7 +17,7 @@ export async function GET() {
       (k) => k.priority === 'recommended' && (!k.present || !k.valid)
     );
 
-    let status = 'operational';
+    let status = 'configuration_present';
     if (requiredMissing.length > 0) {
       status = 'critical';
     } else if (recommendedMissing.length > 0) {
@@ -26,6 +26,9 @@ export async function GET() {
 
     return NextResponse.json({
       status,
+      scope: 'credential_configuration_only',
+      provider_connectivity: 'not_verified',
+      observation_data: 'unavailable',
       timestamp: new Date().toISOString(),
       keys: {
         total,

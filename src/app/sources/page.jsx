@@ -137,7 +137,7 @@ export default function SourcesPage() {
             Connected Observation Feeds
           </h3>
           <p className="text-xs text-slate-500 mt-0.5 font-mono">
-            <span className="text-emerald-700 font-bold">{enabledCount}</span> of {sources.length} sources active
+            <span className="text-emerald-700 font-bold">{enabledCount}</span> of {sources.length} sources enabled (not connectivity-tested)
           </p>
         </div>
 
