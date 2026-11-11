@@ -18,7 +18,7 @@ const approved=url=>{
 const playlistRequest=async url=>{
  if(!approved(url))return null;
  const response=await fetch(url,{
-  cache:'no-store',signal:AbortSignal.timeout(4000),
+  cache:'no-store',signal:AbortSignal.timeout(3000),
   headers:{Origin:'https://asura-topaz.vercel.app',
     Accept:'application/vnd.apple.mpegurl,application/x-mpegurl,text/plain'},
  });
@@ -38,7 +38,7 @@ async function validateSegment(url){
  const u=new URL(url);
  if(u.protocol!=='https:'||u.hostname!=='wzmedia.dot.ca.gov')return false;
  const response=await fetch(u,{
-  method:'GET',cache:'no-store',signal:AbortSignal.timeout(4500),
+  method:'GET',cache:'no-store',signal:AbortSignal.timeout(2800),
   headers:{Origin:'https://asura-topaz.vercel.app',Accept:'video/mp2t,*/*'},
  });
  if(!response.ok)return false;
@@ -113,7 +113,10 @@ export async function GET(request){
  const continent=clean(p.get('continent')),country=clean(p.get('country')).toUpperCase();
  const state=clean(p.get('state')),district=clean(p.get('district')),region=clean(p.get('region'));
  const source=clean(p.get('source'))||'all';
- const limit=Math.max(6,Math.min(18,parseInt(p.get('limit')||'12',10)||12));
+ // Validate at most 6 per invocation: checking 12 fragments serially can
+ // exceed Vercel's 30-second function budget.
+ const limit=Math.max(1,Math.min(6,parseInt(p.get('limit')||'6',10)||6));
+ const start=Math.max(0,Math.min(300,parseInt(p.get('start')||'0',10)||0));
  if((source!=='all'&&source!=='caltrans')||(continent&&continent!=='North America')||
   (country&&country!=='US')||(state&&!same('California',state))){
   return NextResponse.json({success:true,count:0,cameras:[],provider:'Caltrans CWWP2',
@@ -128,17 +131,19 @@ export async function GET(request){
    const br=b.district==='Caltrans District 4'?0:1;
    return ar-br||a.title.localeCompare(b.title);
   });
-  const cameras=[],seen=new Set();
-  for(let i=0;i<Math.min(candidates.length,120)&&cameras.length<limit;i+=10){
-   const checked=await Promise.all(candidates.slice(i,i+10).map(checkPlaylist));
+  const cameras=[],seen=new Set(),startedAt=Date.now();
+  // Bounded batches prevent 504s on expensive operator video probes.
+  for(let i=start;i<Math.min(candidates.length,start+24)&&cameras.length<limit;i+=8){
+   if(Date.now()-startedAt>16500)break;
+   const checked=await Promise.all(candidates.slice(i,i+8).map(checkPlaylist));
    for(const camera of checked)if(camera&&!seen.has(camera.id)&&cameras.length<limit){
     seen.add(camera.id);cameras.push(camera);
    }
   }
   const response=NextResponse.json({success:true,provider:'Caltrans CWWP2',
    checkedAt:new Date().toISOString(),candidates:candidates.length,
-   count:cameras.length,cameras,verifiedLevel:'HLS media playlist with fragments',
-   note:'Video playlist AND actual transport-stream fragment validated before selection. Browser decoding, camera exposure latency and uninterrupted availability remain unverified.'});
+   count:cameras.length,cameras,start,verifiedLevel:'HLS media playlist with accessible video fragments',
+   note:'Max six fragment-checked video sources per request to avoid backend timeouts; select another starting offset for spares. Browser decoding, camera exposure latency and uninterrupted availability remain unverified.'});
   response.headers.set('Cache-Control','public, s-maxage=20, stale-while-revalidate=15');
   return response;
  }catch(error){
