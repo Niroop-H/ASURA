@@ -10,23 +10,23 @@ import {getAirportBoard,hasLicensedFlightAware,flightAwareUnavailable} from '@/l
 const AIRPORTS=[
  {icao:'VOBL',iata:'BLR',name:'Kempegowda International Airport',city:'Bengaluru',
   timezone:'Asia/Kolkata',lat:13.1986,lon:77.7066,
-  aliases:[/\bkempegowda\b/i,/\bbengaluru (?:international )?airport\b/i,/\bbangalore (?:international )?airport\b/i,/\bblr airport\b/i,/\bvobl\b/i],
+  aliases:[/\bkempegowda\b/i,/\bbengaluru (?:international )?airport\b/i,/\bbangalore (?:international )?airport\b/i,/\bblr(?: airport)?\b/i,/\bvobl\b/i],
   publicArrivalsUrl:'https://data.flightradar24.com/data/airports/blr/arrivals'},
  {icao:'VIDP',iata:'DEL',name:'Indira Gandhi International Airport',city:'Delhi',
   timezone:'Asia/Kolkata',lat:28.5562,lon:77.1000,
-  aliases:[/\bindira gandhi\b/i,/\bdelhi airport\b/i,/\bdel airport\b/i,/\bvidp\b/i],
+  aliases:[/\bindira gandhi\b/i,/\bdelhi airport\b/i,/\bdel(?: airport)?\b/i,/\bvidp\b/i],
   publicArrivalsUrl:'https://data.flightradar24.com/data/airports/del/arrivals'},
  {icao:'VABB',iata:'BOM',name:'Chhatrapati Shivaji Maharaj International Airport',city:'Mumbai',
   timezone:'Asia/Kolkata',lat:19.0896,lon:72.8656,
-  aliases:[/\bchhatrapati shivaji\b/i,/\bmumbai airport\b/i,/\bbom airport\b/i,/\bvabb\b/i],
+  aliases:[/\bchhatrapati shivaji\b/i,/\bmumbai airport\b/i,/\bbom(?: airport)?\b/i,/\bvabb\b/i],
   publicArrivalsUrl:'https://data.flightradar24.com/data/airports/bom/arrivals'},
  {icao:'VOHS',iata:'HYD',name:'Rajiv Gandhi International Airport',city:'Hyderabad',
   timezone:'Asia/Kolkata',lat:17.2403,lon:78.4294,
-  aliases:[/\brajiv gandhi international airport\b/i,/\bhyderabad airport\b/i,/\bhyd airport\b/i,/\bvohs\b/i],
+  aliases:[/\brajiv gandhi international airport\b/i,/\bhyderabad airport\b/i,/\bhyd(?: airport)?\b/i,/\bvohs\b/i],
   publicArrivalsUrl:'https://data.flightradar24.com/data/airports/hyd/arrivals'},
  {icao:'VOMM',iata:'MAA',name:'Chennai International Airport',city:'Chennai',
   timezone:'Asia/Kolkata',lat:12.9941,lon:80.1709,
-  aliases:[/\bchennai airport\b/i,/\bmaa airport\b/i,/\bvomm\b/i],
+  aliases:[/\bchennai airport\b/i,/\bmaa(?: airport)?\b/i,/\bvomm\b/i],
   publicArrivalsUrl:'https://data.flightradar24.com/data/airports/maa/arrivals'},
  {icao:'EGLL',iata:'LHR',name:'Heathrow Airport',city:'London',
   timezone:'Europe/London',lat:51.4700,lon:-0.4543,
@@ -66,7 +66,12 @@ export function airportArrivalIntent(question){
  const airport=identifyAirport(input);
  if(!airport)return null;
  const mode=departures.test(input)&&!arrivalSpecific.test(input)?'departures':'arrivals';
- return {airport,mode,requestedDate:localDate(new Date(),airport.timezone)};
+ const delta=/\btomorrow\b/i.test(input)?1:/\byesterday\b/i.test(input)?-1:0;
+ const explicit=input.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+ const explicitDate=explicit?explicit[0]:null;
+ const requestedDate=explicitDate||
+  localDate(new Date(Date.now()+delta*86400000),airport.timezone);
+ return {airport,mode,requestedDate};
 }
 const record=(f,i,airport,checkedAt,mode)=>{
  const actual=mode==='departures'?f.actualDeparture:f.actualArrival;
