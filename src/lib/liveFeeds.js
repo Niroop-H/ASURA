@@ -137,7 +137,7 @@ export async function getLiveSource(source, options = {}) {
       const failures = [];
       for (const p of providers) {
         try {
-          const data = await retrieve(p.url, 60);
+          const data = await retrieve(p.url, 25);
           if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft payload');
           const now = Number(data.now) > 1e12 ? Number(data.now) / 1000 : Number(data.now) || Date.now() / 1000;
           const eligible = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number(a.seen_pos ?? 0) <= 120);
@@ -155,7 +155,7 @@ export async function getLiveSource(source, options = {}) {
             ageSeconds: Math.round(Number(a.seen_pos || 0)), onGround: a.alt_baro === 'ground', url: null,
           }));
           return { success: true, source, provider: p.name, retrievedAt: new Date().toISOString(),
-            refreshSeconds: 60, count: records.length, records, region: center.name,
+            refreshSeconds: 30, count: records.length, records, region: center.name,
             center: { lat: center.lat, lon: center.lon }, radiusNm: radius,
             positionedAircraft: eligible.length, providerReportedAircraft: Number(data.total) || data.ac.length,
             truncated: eligible.length > records.length,
