@@ -183,7 +183,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     setResponses({});
     poll();
     // Polling, not websocket streaming; data timestamps show genuine positions.
-    const interval = setInterval(poll, providerChoice === 'flightaware' ? 120000 : 60000);
+    const interval = setInterval(poll, providerChoice === 'flightaware' ? 120000 : 30000);
     return () => { active = false; clearInterval(interval); };
   }, [providerChoice, region, queryCenter, refresh]);
 
