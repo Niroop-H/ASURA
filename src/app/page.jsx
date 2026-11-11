@@ -20,6 +20,7 @@ export default function DashboardPage() {
       <Link href="/flights" className="underline text-sky-700">Live Flight Explorer</Link>
       <Link href="/agent" className="underline text-sky-700">DEVASHRI AI</Link>
       <Link href="/globe" className="underline text-sky-700">Cesium 3D Globe</Link>
+      <Link href="/weather" className="underline text-sky-700">Worldwide Weather Explorer</Link>
       <Link href="/satellite" className="underline text-sky-700">Satellite imagery viewer</Link>
       <Link href="/cameras" className="underline text-sky-700">Authorized camera viewer</Link>
       <Link href="/sources" className="underline text-sky-700">Source registry</Link>
