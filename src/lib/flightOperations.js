@@ -5,13 +5,16 @@ const BOARD_TYPES = new Set(['departures','arrivals','scheduled_departures','sch
 
 export function hasLicensedFlightAware() {
   return process.env.FLIGHTAWARE_PUBLIC_DISPLAY_LICENSED === 'true' &&
+    process.env.FLIGHTAWARE_OPERATIONAL_USE_AUTHORIZED === 'true' &&
     !!process.env.FLIGHTAWARE_AEROAPI_KEY;
 }
 export function flightAwareUnavailable() {
   return {
     success: false, status: 503, provider: 'FlightAware AeroAPI',
     error: process.env.FLIGHTAWARE_PUBLIC_DISPLAY_LICENSED !== 'true'
-      ? 'Licensed public-display use of FlightAware data has not been confirmed. Airport movement boards require an authorized FlightAware commercial agreement.'
+      ? 'Licensed public-display use of FlightAware data has not been confirmed. Airport movement boards require explicit provider permission.'
+      : process.env.FLIGHTAWARE_OPERATIONAL_USE_AUTHORIZED !== 'true'
+      ? 'FlightAware intended-use authorization is not confirmed. Obtain written approval for ASURA\'s exact display, defence/research and any multi-provider use before enabling.'
       : 'FLIGHTAWARE_AEROAPI_KEY is not configured on the server.',
   };
 }
