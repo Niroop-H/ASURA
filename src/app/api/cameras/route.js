@@ -6,7 +6,7 @@ const text=(v,max=100)=>typeof v==='string'?v.trim().slice(0,max):'';
 export async function GET(request){
  const p=new URL(request.url).searchParams;
  const source=text(p.get('source'),15)||'all';
- if(!['all','caltrans','windy'].includes(source))
+ if(!['all','caltrans','tfl','windy'].includes(source))
   return NextResponse.json({success:false,error:'Invalid camera source'},{status:400});
  const continent=text(p.get('continent'),40);
  const country=text(p.get('country'),80).toUpperCase();
