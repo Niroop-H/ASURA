@@ -74,6 +74,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
   const [responses, setResponses] = useState({});
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [globalMode, setGlobalMode] = useState('callsign');
+  const [lookup, setLookup] = useState(null);
+  const [searching, setSearching] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -231,6 +235,31 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       marker.openPopup();
     }
   };
+  const searchWorldwide = async event => {
+    event.preventDefault();
+    if (!globalSearch.trim()) return;
+    setSearching(true);
+    setLookup(null);
+    try {
+      const qs = new URLSearchParams({mode: globalMode, q: globalSearch.trim()});
+      const response = await fetch('/api/aircraft/find?' + qs.toString(), {cache: 'no-store'});
+      const data = await response.json();
+      setLookup(data);
+      if (data.success && data.records.length) {
+        const r = data.records[0];
+        if (mapRef.current) mapRef.current.flyTo([r.lat, r.lon], 9, {duration: .5});
+      }
+    } catch (error) {
+      setLookup({success: false, error: error.message || 'Unable to search aircraft'});
+    } finally {
+      setSearching(false);
+    }
+  };
+  const inspectLocated = record => {
+    if (mapRef.current) mapRef.current.flyTo([record.lat, record.lon], 9, { duration: .5 });
+    setQueryCenter({ lat: Math.round(record.lat * 100) / 100, lon: Math.round(record.lon * 100) / 100 });
+    setRegion('custom');
+  };
   const loadCurrentArea = () => {
     if (!mapRef.current) return;
     const p = mapRef.current.getCenter();
@@ -259,6 +288,32 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
           <button onClick={() => setRefresh(n => n + 1)} type="button" className="px-3 py-2 rounded border text-xs">Refresh feeds</button>
         </div>
       </div>
+      <form onSubmit={searchWorldwide} className="flex flex-wrap gap-2 items-center rounded bg-slate-50 border border-slate-200 p-3">
+        <label className="text-xs font-semibold" htmlFor="global-aircraft-search">Find broadcasting aircraft worldwide</label>
+        <select aria-label="Identifier type" value={globalMode} onChange={e => setGlobalMode(e.target.value)}
+          className="rounded border border-slate-300 p-2 text-sm">
+          <option value="callsign">ADS-B callsign</option>
+          <option value="registration">Registration</option>
+          <option value="icao">ICAO hex</option>
+        </select>
+        <input id="global-aircraft-search" value={globalSearch}
+          onChange={e => setGlobalSearch(e.target.value.toUpperCase())} minLength={3} maxLength={12}
+          pattern="[A-Za-z0-9-]{3,12}" required placeholder="e.g. AIC123"
+          className="flex-1 min-w-36 rounded border border-slate-300 p-2 text-sm"/>
+        <button type="submit" disabled={searching} className="rounded bg-slate-900 text-white text-xs px-4 py-2 disabled:opacity-60">
+          {searching ? 'Searching…' : 'Find worldwide'}
+        </button>
+        <span className="text-xs text-slate-500">Searches live receiver coverage, not airline timetables.</span>
+        {lookup?.error && <p className="basis-full text-xs text-amber-900" role="alert">{lookup.error}</p>}
+        {lookup?.success && <div className="basis-full text-xs">
+          {lookup.count ? lookup.records.map(r =>
+            <button key={r.id} type="button" onClick={() => inspectLocated(r)}
+              className="mr-2 mb-1 underline text-sky-700 text-left">
+              {r.title} · {r.registration || r.icao24 || 'No registration'} · Show on map
+            </button>)
+            : 'No recent position matching that identifier is available in this public receiver network.'}
+        </div>}
+      </form>
       <div className="flex flex-wrap gap-4 items-center">
         <label className="text-xs font-medium">Airspace
           <select value={region} onChange={e => { setQueryCenter(null); setRegion(e.target.value); }} className="ml-2 rounded border border-slate-300 bg-white p-2">
