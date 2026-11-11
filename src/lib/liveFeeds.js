@@ -5,8 +5,9 @@ const SOURCE_LABELS = {
   flights: 'adsb.lol',
   weather: 'OpenWeather',
   news: 'NewsAPI',
+  flightaware: 'FlightAware AeroAPI',
 };
-export const LIVE_SOURCES = Object.keys(SOURCE_LABELS);
+export const LIVE_SOURCES = [...Object.keys(SOURCE_LABELS), 'flightaware'];
 const when = value => value == null ? null : new Date(value).toISOString();
 const normalizeUrl = value => {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null; }
@@ -60,6 +61,56 @@ export async function getLiveSource(source, options = {}) {
       }).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
       return ok(source, data, items, interval);
     }
+    if (source === 'flightaware') {
+      // No scraping of flightaware.com. A separate, authorized paid provider; never mix with ADS-B.
+      if (process.env.FLIGHTAWARE_PUBLIC_DISPLAY_LICENSED !== 'true') {
+        return { success: false, source, provider: 'FlightAware AeroAPI', status: 503,
+          error: 'FlightAware public-display/redistribution license has not been confirmed. Set FLIGHTAWARE_PUBLIC_DISPLAY_LICENSED=true only if your agreement permits this use.' };
+      }
+      if (!process.env.FLIGHTAWARE_AEROAPI_KEY) {
+        return { success: false, source, provider: 'FlightAware AeroAPI', status: 503,
+          error: 'FLIGHTAWARE_AEROAPI_KEY is not configured.' };
+      }
+      const areas = {
+        bengaluru: [12.9716, 77.5946], london: [51.4700, -0.4543],
+        singapore: [1.3644, 103.9915], newyork: [40.6413, -73.7781], dubai: [25.2532, 55.3657]
+      };
+      const [lat, lon] = areas[options.region] || areas.bengaluru;
+      const query = '-latlong "' + [lat - 1.5, lon - 1.5, lat + 1.5, lon + 1.5].map(x => x.toFixed(4)).join(' ') + '"';
+      const u = new URL('https://aeroapi.flightaware.com/aeroapi/flights/search');
+      u.searchParams.set('query', query);
+      u.searchParams.set('max_pages', '1'); // Keep usage bounded (AeroAPI is metered).
+      const response = await fetch(u, { next: { revalidate: 120 }, signal: AbortSignal.timeout(10000),
+        headers: { 'x-apikey': process.env.FLIGHTAWARE_AEROAPI_KEY, 'Accept': 'application/json' } });
+      if (!response.ok) throw new Error('FlightAware AeroAPI HTTP ' + response.status);
+      const data = await response.json();
+      if (!Array.isArray(data.flights)) throw new Error('Unexpected FlightAware response');
+      const records = data.flights.map(f => {
+        const p = f.last_position;
+        if (!p || !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) return null;
+        const age = p.timestamp ? Math.max(0, Math.round((Date.now() - Date.parse(p.timestamp)) / 1000)) : null;
+        return {
+          id: String(f.fa_flight_id || f.ident), faFlightId: f.fa_flight_id || null,
+          title: f.ident || f.ident_icao || f.ident_iata || 'Flight',
+          registration: null, aircraftType: f.aircraft_type || null,
+          lat: p.latitude, lon: p.longitude, source: 'FlightAware AeroAPI',
+          observedAt: p.timestamp || null, ageSeconds: age,
+          altitudeFeet: Number.isFinite(p.altitude) ? p.altitude * 100 : null,
+          speedKnots: Number.isFinite(p.groundspeed) ? p.groundspeed : null,
+          heading: Number.isFinite(p.heading) ? p.heading : null,
+          origin: f.origin?.code_icao || f.origin?.code || null,
+          destination: f.destination?.code_icao || f.destination?.code || null,
+          actualOff: f.actual_off || null, actualOn: f.actual_on || null,
+          positionType: p.update_type || null,
+          description: 'FlightAware flight status', url: f.fa_flight_id
+            ? 'https://www.flightaware.com/live/flight/id/' + encodeURIComponent(f.fa_flight_id) : null,
+        };
+      }).filter(Boolean);
+      return { success: true, source, provider: 'FlightAware AeroAPI', count: records.length, records,
+        retrievedAt: new Date().toISOString(), refreshSeconds: 120,
+        coverage: 'AeroAPI search results (first page); partial regional coverage possible',
+        attribution: 'FlightAware licensed data; service and usage restrictions apply' };
+    }
     if (source === 'flights') {
       const regions = {
         bengaluru: { lat: 12.9716, lon: 77.5946, name: 'Bengaluru' },
@@ -83,7 +134,11 @@ export async function getLiveSource(source, options = {}) {
             id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
             lat: a.lat, lon: a.lon, source: p.name, observedAt: when((now - Number(a.seen_pos || 0)) * 1000),
             description: [a.t || 'Aircraft', a.r || null].filter(Boolean).join(' · '),
+            registration: a.r || null, aircraftType: a.t || null, icao24: a.hex || null,
             altitudeFeet: Number.isFinite(a.alt_baro) ? a.alt_baro : null,
+            geometricAltitudeFeet: Number.isFinite(a.alt_geom) ? a.alt_geom : null,
+            verticalRateFpm: Number.isFinite(a.baro_rate) ? a.baro_rate : null,
+            squawk: a.squawk || null, category: a.category || null,
             speedKnots: Number.isFinite(a.gs) ? a.gs : null,
             heading: Number.isFinite(a.track) ? a.track : null,
             ageSeconds: Math.round(Number(a.seen_pos || 0)), url: null,
