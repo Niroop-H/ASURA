@@ -135,6 +135,8 @@ function normalizeWindy(w){
 }
 export async function getWindyCatalog({continent='',country='',state='',offset=0}={}) {
   if(!process.env.WINDY_WEBCAMS_API_KEY)return {connected:false,reason:'WINDY_WEBCAMS_API_KEY is not configured',cameras:[],total:0};
+  if(offset>1000) return {connected:true,provider:'Windy Webcams',cameras:[],total:0,
+    incomplete:true,note:'The Windy free API plan limits listing offsets to 1000.'};
   const url=new URL('https://api.windy.com/webcams/api/v3/webcams');
   url.searchParams.set('limit','50');
   url.searchParams.set('offset',String(Math.min(Math.max(0,offset),1000)));
