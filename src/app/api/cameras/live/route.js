@@ -30,7 +30,8 @@ export async function GET(request){
  const p=new URL(request.url).searchParams;
  const continent=clean(p.get('continent')),country=clean(p.get('country')).toUpperCase();
  const state=clean(p.get('state')),district=clean(p.get('district')),region=clean(p.get('region'));
- if((continent&&continent!=='North America')||(country&&country!=='US')||
+ const source=clean(p.get('source'))||'all';
+ if((source!=='all'&&source!=='caltrans')||(continent&&continent!=='North America')||(country&&country!=='US')||
    (state&&!same('California',state))){
   return NextResponse.json({success:true,count:0,cameras:[],provider:'Caltrans CWWP2',
    note:'No connected authorized HLS streaming-camera provider for this location. An APK or Windy screenshot API will not create a live video source.'});
