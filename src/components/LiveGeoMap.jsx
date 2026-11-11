@@ -64,8 +64,9 @@ function Datum({ label, value }) {
   </div>;
 }
 export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
-  const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), coverageRef = useRef(null), markersRef = useRef(new Map());
+  const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), coverageRef = useRef(null), routeLayerRef = useRef(null), markersRef = useRef(new Map());
   const [region, setRegion] = useState(initialRegion);
+  const [routeOverlay, setRouteOverlay] = useState(null);
   const [queryCenter, setQueryCenter] = useState(null);
   const [mapViewCenter, setMapViewCenter] = useState(null);
   const [basemap, setBasemap] = useState('street');
@@ -110,6 +111,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       };
       tileRef.current.street.addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
+      routeLayerRef.current = L.layerGroup().addTo(map);
       coverageRef.current = L.circle(REGIONS[initialRegion]?.coords || REGIONS.bengaluru.coords, {
         radius: 250 * 1852, color: '#0284c7', weight: 1, dashArray: '5,8',
         opacity: 0.65, fillColor: '#0284c7', fillOpacity: 0.035, interactive: false,
@@ -128,6 +130,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       mapRef.current?.remove();
       mapRef.current = null;
       layerRef.current = null;
+      routeLayerRef.current = null;
       coverageRef.current = null;
       markersRef.current = new Map();
     };
@@ -226,6 +229,65 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
     }
     markersRef.current = byId;
   }, [mapReady, responses, providerChoice, flights, layers, selected]);
+
+
+  // The Airport Operations panel shares this map without another renderer or duplicated provider polling.
+  useEffect(() => {
+    const receive = event => {
+      const detail = event.detail || {};
+      setRouteOverlay(detail);
+      if (detail.focusAirport && Number.isFinite(detail.focusAirport.lat) &&
+          Number.isFinite(detail.focusAirport.lon) && mapRef.current) {
+        mapRef.current.flyTo([detail.focusAirport.lat, detail.focusAirport.lon], 8, { duration: .5 });
+      }
+    };
+    window.addEventListener('asura:map-route', receive);
+    return () => window.removeEventListener('asura:map-route', receive);
+  }, []);
+  useEffect(() => {
+    if (!mapReady || !window.L || !routeLayerRef.current) return;
+    const L = window.L, layer = routeLayerRef.current;
+    layer.clearLayers();
+    if (!routeOverlay) return;
+    const from = routeOverlay.origin, to = routeOverlay.destination;
+    const validPosition = p => p && Number.isFinite(p.lat) && Number.isFinite(p.lon) &&
+      Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180;
+    for (const [airport, label, color] of [[from, 'Start airport', '#16a34a'], [to, 'Destination airport', '#db2777']]) {
+      if (!validPosition(airport)) continue;
+      const node = L.circleMarker([airport.lat, airport.lon], {radius: 9,color:'#fff',weight:3,fillColor:color,fillOpacity:1});
+      const popup = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = label + ': ' + (airport.name || airport.icao || airport.id || 'Airport');
+      popup.appendChild(name);
+      node.bindPopup(popup).addTo(layer);
+    }
+    if (validPosition(from) && validPosition(to)) {
+      L.polyline([[from.lat,from.lon],[to.lat,to.lon]], {
+        color:'#64748b',weight:2,dashArray:'7,9',opacity:.9,
+      }).bindTooltip('Selected airport-to-airport reference, NOT the flown route').addTo(layer);
+    }
+    const observations = (Array.isArray(routeOverlay.flightPoints) ? routeOverlay.flightPoints : [])
+      .filter(validPosition).slice(-1500);
+    if (observations.length >= 2) {
+      L.polyline(observations.map(p=>[p.lat,p.lon]),{
+        color:'#e11d48',weight:4,opacity:.9,
+      }).bindTooltip(routeOverlay.trackProvider || 'Reported track positions').addTo(layer);
+    }
+    const tracked = routeOverlay.tracking;
+    if (validPosition(tracked)) {
+      const node = L.marker([tracked.lat,tracked.lon],{
+        icon:airplaneIcon(L,tracked.heading,true),zIndexOffset:3000,
+      });
+      const message = document.createElement('div');
+      const strong = document.createElement('strong');
+      strong.textContent = String(tracked.title||tracked.callsign||'Selected aircraft');
+      message.appendChild(strong);
+      const details = document.createElement('p');
+      details.textContent = 'Last reported: '+when(tracked.observedAt);
+      message.appendChild(details);
+      node.bindPopup(message).addTo(layer);
+    }
+  }, [routeOverlay,mapReady]);
 
   const selectAircraft = r => {
     setSelected({ source: 'flights', id: r.id });
@@ -415,6 +477,12 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
         {current.faFlightId && <p className="text-xs text-slate-500 mt-3">FlightAware flight ID: {current.faFlightId}</p>}
       </> : <p className="text-sm text-slate-500">Select an aircraft silhouette or an item from the aircraft list to see details. Only fields the provider supplies will be shown.</p>}
     </div>
+    {routeOverlay && <div className="p-3 border-t text-xs text-slate-600 space-y-1">
+      <p><span className="font-semibold text-green-700">Green</span> start airport · <span className="font-semibold text-pink-700">Pink</span> destination ·
+      <span className="font-semibold text-slate-600"> Grey dashed</span> straight-line airport reference, NOT actual flown route ·
+      <span className="font-semibold text-rose-600"> Red solid</span> observed aircraft trajectory when available.</p>
+      <p>{routeOverlay.trackProvider || 'No reported position track supplied'} · {routeOverlay.flightPoints?.length || 0} observed track points</p>
+    </div>}
     <div className="px-4 pb-4 text-xs text-slate-500">
       Global exploration shows the current 250 NM circle centered on your selected map location. Coverage depends on participating receivers; aircraft may not be identifiable or present in this feed.
       <a className="ml-2 text-sky-700 underline" href="https://www.adsb.lol/docs/open-data/api" target="_blank" rel="noopener noreferrer">ADSB.lol data and license</a>. 
