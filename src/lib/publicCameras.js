@@ -59,6 +59,50 @@ export async function getCaltransCatalog() {
   if(failed.length===12)throw new Error('All Caltrans district feeds unavailable');
   return {provider:'Caltrans CWWP2',cameras,failed,complete:failed.length===0};
 }
+/**
+ * Official TfL JamCams: publicly distributed travel images and short MP4 clips.
+ * MP4 files are clips updated by TfL, not continuous live video streams.
+ */
+export async function getTflCatalog(){
+ const response=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam',{
+  next:{revalidate:180},signal:AbortSignal.timeout(13000),
+  headers:{Accept:'application/json','User-Agent':'ASURA-PublicCameraExplorer/1.0'},
+ });
+ if(!response.ok)throw new Error('Transport for London JamCam HTTP '+response.status);
+ const data=await response.json();
+ if(!Array.isArray(data))throw new Error('Invalid TfL JamCam response');
+ const cameras=data.map(cam=>{
+  const p=Object.fromEntries((cam.additionalProperties||[]).map(x=>[x.key,x.value]));
+  if(String(p.available).toLowerCase()!=='true')return null;
+  const lat=Number(cam.lat),lon=Number(cam.lon);
+  if(!isCoord(lat,lon))return null;
+  const safeTflFile=(raw,extension)=>{
+   try{
+    const u=new URL(raw);
+    if(u.protocol!=='https:'||u.hostname!=='s3-eu-west-1.amazonaws.com'||
+      !u.pathname.startsWith('/jamcams.tfl.gov.uk/')||!u.pathname.toLowerCase().endsWith(extension))return null;
+    return u.href;
+   }catch{return null;}
+  };
+  const image=safeTflFile(p.imageUrl,'.jpg');
+  const clip=safeTflFile(p.videoUrl,'.mp4');
+  if(!image&&!clip)return null;
+  return {
+   id:'tfl-'+safeText(cam.id,90),title:safeText(cam.commonName||cam.id,170),
+   provider:'TfL JamCams',operator:'Transport for London',
+   continent:'Europe',country:'United Kingdom',countryCode:'GB',
+   state:'England',district:null,region:'Greater London',locality:null,
+   lat,lon,kind:'traffic',sourceType:clip?'clip':'snapshot',
+   imageUrl:image,videoUrl:clip,playerUrl:null,
+   operatorUrl:'https://tfl.gov.uk/traffic/status/',
+   direction:safeText(p.view,80),
+   recordAt:(cam.additionalProperties||[]).find(x=>x.key==='imageUrl')?.modified||null,
+   imageUpdateFrequency:null,
+   note:'TfL provides periodically refreshed images and short MP4 clips. The published clip is not continuous live video.',
+  };
+ }).filter(Boolean);
+ return {provider:'TfL JamCams',cameras,complete:true,totalPublished:data.length};
+}
 function firstUrl(obj){
   if(typeof obj==='string')return obj;
   if(!obj||typeof obj!=='object')return null;
@@ -130,6 +174,15 @@ export async function listCameras({continent='',country='',state='',district='',
         }catch(e){sources.push({name:'Caltrans CWWP2',connected:false,error:String(e.message)});}
       }
     } else sources.push({name:'Caltrans CWWP2',connected:true,notInCoverage:true,count:0});
+  }
+  if(source==='all'||source==='tfl'){
+    if((!country||country==='GB'||country==='United Kingdom')&&(!continent||continent==='Europe')){
+      try{
+        const tfl=await getTflCatalog();
+        all.push(...tfl.cameras);
+        sources.push({name:'TfL JamCams',connected:true,count:tfl.cameras.length,complete:true});
+      }catch(e){sources.push({name:'TfL JamCams',connected:false,error:String(e.message)});}
+    }else sources.push({name:'TfL JamCams',connected:true,notInCoverage:true,count:0});
   }
   if(source==='all'||source==='windy'){
     try{
