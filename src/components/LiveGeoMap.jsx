@@ -120,8 +120,14 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     let mounted = true;
     initializeLeaflet().then(L => {
       if (!mounted || !target.current || mapRef.current) return;
+      // Preserve the selected geographic area when switching Cesium 3D → Leaflet 2D.
+      const firstCenter = globeCenter && valid(globeCenter)
+        ? [globeCenter.lat,globeCenter.lon]
+        : queryCenter && valid(queryCenter)
+        ? [queryCenter.lat,queryCenter.lon]
+        : (REGIONS[region]?.coords || REGIONS.bengaluru.coords);
       const map = L.map(target.current, { zoomControl: true, worldCopyJump: true, preferCanvas: true })
-        .setView(REGIONS[initialRegion]?.coords || REGIONS.bengaluru.coords, 8);
+        .setView(firstCenter, 8, {animate:false});
       mapRef.current = map;
       tileRef.current = {
         street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -134,7 +140,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       tileRef.current.street.addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
       routeLayerRef.current = L.layerGroup().addTo(map);
-      coverageRef.current = L.circle(REGIONS[initialRegion]?.coords || REGIONS.bengaluru.coords, {
+      coverageRef.current = L.circle(firstCenter, {
         radius: 250 * 1852, color: '#0284c7', weight: 1, dashArray: '5,8',
         opacity: 0.65, fillColor: '#0284c7', fillOpacity: 0.035, interactive: false,
       }).addTo(map);
