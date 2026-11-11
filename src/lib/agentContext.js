@@ -25,8 +25,8 @@ const REGION_WEATHER={bengaluru:PLACES[0],london:PLACES[1],
  singapore:PLACES[2],newyork:PLACES[3],dubai:PLACES[4]};
 async function weatherLocation(question){
  const q=String(question||'').toLowerCase();
- const known=PLACES.find(city=>city.terms.some(t=>q.includes(t.toLowerCase())));
- if(known)return {...known,name:known.label,country:''};
+ // Always geocode the requested place; matching 'Paris' to a hard-coded
+ // capital can be wrong when the user means Paris, Texas.
  // Do not substitute Bengaluru (or the aviation region selector) for a
  // question that doesn't name a weather location.
  const match=question.match(/\b(?:weather|temperature|forecast|rain|humidity|wind|conditions?)\s+(?:today\s+|currently\s+|right\s+now\s+)?(?:in|at|near|for|of)\s+([^\n?!]{2,90})/i)
