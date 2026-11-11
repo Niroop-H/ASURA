@@ -137,7 +137,11 @@ function CameraDetail({camera}){
   return()=>clearInterval(t);
  },[camera?.id,camera?.imageUrl]);
  if(!camera)return <div className="defense-card p-5 text-sm text-slate-500">Select a public camera to inspect its available images and playback options.</div>;
- const thumbnail=camera.imageUrl?camera.imageUrl+(camera.imageUrl.includes('?')?'&':'?')+'asuraRefresh='+imageNonce:null;
+ const thumbnail=camera.imageUrl
+  ?camera.provider==='Windy Webcams'
+    ?camera.imageUrl // Windy uses signed preview tokens; do not modify their URLs.
+    :camera.imageUrl+(camera.imageUrl.includes('?')?'&':'?')+'asuraRefresh='+imageNonce
+  :null;
  return <section className="defense-card p-5 space-y-4">
   <div className="flex flex-wrap justify-between gap-3 items-start">
    <div>
@@ -204,6 +208,11 @@ export default function PublicCameraExplorer(){
  const [page,setPage]=useState(0),[loading,setLoading]=useState(true),[error,setError]=useState('');
  const [selected,setSelected]=useState(null),[mapShown,setMapShown]=useState(false);
  const [refresh,setRefresh]=useState(0);
+ // Refresh signed Windy image URLs before their short free-tier expiration.
+ useEffect(()=>{
+  const timer=setInterval(()=>setRefresh(x=>x+1),8*60*1000);
+  return()=>clearInterval(timer);
+ },[]);
  useEffect(()=>{
   let alive=true;
   fetch('/api/cameras/geography').then(r=>r.json()).then(d=>{if(alive&&d.success)setGeo(d)}).catch(()=>{});
