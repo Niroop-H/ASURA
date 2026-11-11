@@ -145,9 +145,21 @@ export default function AirportOperationsWorkspace({map}){
   setTrace([]);setTracked(record);setSelectedFlight(null);setProviderTrace([]);
   setTracking(true);addPoint(record);
  };
+ const resolveAirportCode=async(raw)=>{
+  if(!raw || !/^[A-Z0-9]{3,5}$/.test(raw.toUpperCase()))return null;
+  const code=raw.toUpperCase();
+  const response=await fetch('/api/airports?q='+encodeURIComponent(code)+'&limit=30');
+  const data=await response.json();
+  return (data.airports||[]).find(a=>a.icao===code||a.iata===code||a.id===code)||null;
+ };
  const selectBoardFlight=async f=>{
   setSelectedFlight(f);setProviderTrace([]);setTrackError('');setTrackLoading(true);
-  setTracking(false);
+  setTracking(false);setTrace([]);setTracked(null);
+  try{
+   const [from,to]=await Promise.all([resolveAirportCode(f.origin),resolveAirportCode(f.destination)]);
+   if(from)setOrigin(from);
+   if(to)setDestination(to);
+  }catch{/* Airport directory lookup failed; retain provider codes and do not invent coordinates. */}
   try{
    if(!f.faFlightId)throw new Error('Flight record does not provide a unique FlightAware flight ID.');
    const r=await fetch('/api/flights/operations?'+new URLSearchParams({track:'true',id:f.faFlightId}));
