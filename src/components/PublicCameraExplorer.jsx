@@ -226,6 +226,7 @@ export default function PublicCameraExplorer(){
  const [autoError,setAutoError]=useState('');
  const sparePoolRef=useRef([]);
  const failedStreamsRef=useRef(new Set());
+ const autoFillEpochRef=useRef(0);
  const [manualTitle,setManualTitle]=useState('');
  const [manualOperator,setManualOperator]=useState('');
  const [manualUrl,setManualUrl]=useState('');
@@ -385,22 +386,36 @@ export default function PublicCameraExplorer(){
    for(const key of ['continent','country','state','district','region','source']){
     if(filters[key])qs.set(key,filters[key]);
    }
-   qs.set('limit','12');
+   qs.set('limit','6');
+   const epoch=++autoFillEpochRef.current;
+   sparePoolRef.current=[];
    const response=await fetch('/api/cameras/live?'+qs,{cache:'no-store'});
    const data=await response.json();
    if(!data.success)throw new Error(data.error||'Live feed search failed');
-   const sources=(data.cameras||[]).filter(c=>c.sourceType==='hls'&&c.videoUrl)
-     .slice(0,12).map(c=>({...c,autoAssigned:true}));
+   const sources=(data.cameras||[]).filter(c=>c.sourceType==='hls'&&c.videoUrl&&c.segmentFetchVerified===true)
+     .slice(0,6).map(c=>({...c,autoAssigned:true}));
    if(!sources.length){
     setAutoError('No verified public HLS video feeds for this selected region or provider. Choose North America → United States → California, or arrange an authorized live-video provider for this country.');
     return;
    }
    sparePoolRef.current=sources;
    failedStreamsRef.current=new Set();
-   const assigned=sources.slice(0,6);
-   setWallSlots([...assigned,...Array(6-assigned.length).fill(null)]);
+   setWallSlots([...sources,...Array(6-sources.length).fill(null)]);
    setSelectedWallSlot(null);
-   if(assigned.length<6)setAutoError('Only '+assigned.length+' active public HLS media playlists were found. Blank slots remain unassigned; ASURA will not invent camera streams.');
+   if(sources.length<6)setAutoError('Only '+sources.length+' public HLS feeds passed the video-fragment check. Blank slots stay empty until an authorized working stream is found.');
+   // Find spare feeds separately, without delaying the first six cameras.
+   const spareQuery=new URLSearchParams(qs);
+   spareQuery.set('start','24');
+   fetch('/api/cameras/live?'+spareQuery,{cache:'no-store'})
+    .then(r=>r.json())
+    .then(extra=>{
+     if(epoch!==autoFillEpochRef.current||!extra?.success)return;
+     const used=new Set(sparePoolRef.current.map(c=>c.id));
+     const more=(extra.cameras||[])
+      .filter(c=>c.sourceType==='hls'&&c.videoUrl&&c.segmentFetchVerified===true&&!used.has(c.id))
+      .map(c=>({...c,autoAssigned:true}));
+     sparePoolRef.current=[...sparePoolRef.current,...more].slice(0,12);
+    }).catch(()=>{});
   }catch(e){setAutoError(e.message||'Unable to load live wall feeds')}
   finally{setAutoLoading(false);}
  };
@@ -411,7 +426,7 @@ export default function PublicCameraExplorer(){
   if(!wallHydrated||!wallSlots.some(c=>c?.autoAssigned)||sparePoolRef.current.length)return;
   let active=true;
   const controller=new AbortController();
-  fetch('/api/cameras/live?limit=12',{cache:'no-store',signal:controller.signal})
+  fetch('/api/cameras/live?limit=6',{cache:'no-store',signal:controller.signal})
    .then(r=>r.json())
    .then(data=>{
     if(!active||sparePoolRef.current.length||!data.success)return;
