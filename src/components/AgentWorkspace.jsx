@@ -2,6 +2,7 @@
 
 import {useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
+import RichAgentAnswer from './RichAgentAnswer';
 import {
  Send,LoaderCircle,Plus,MessageSquareText,Activity,Camera,Newspaper,Plane,CloudSun,
  Globe2,ExternalLink,ChevronDown,ShieldAlert,Search,MapPin,Database,Copy,Check
@@ -14,7 +15,7 @@ const SOURCE_OPTIONS=[
 const REGIONS=[['bengaluru','Bengaluru'],['london','London'],['singapore','Singapore'],
  ['newyork','New York'],['dubai','Dubai']];
 const examples=[
- {title:'Talk to ASURA',prompt:'Hey ASURA, what can you help me do?'},
+ {title:'Talk to DEVASHRI',prompt:'Hey DEVASHRI, what can you help me do?'},
  {title:'Latest headlines',prompt:'Summarize the latest available news headlines and cite the sources.'},
  {title:'Live aviation',prompt:'What can the public ADS-B aircraft feed currently tell us around Bengaluru?'},
  {title:'Public camera coverage',prompt:'Which authorized public camera directories are connected and what are their limitations?'},
@@ -129,13 +130,13 @@ export default function AgentWorkspace(){
   catch{}
  };
  return <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_270px] gap-5 min-h-[65vh]">
-  <section className="defense-card min-w-0 flex flex-col overflow-hidden" aria-label="ASURA AI Agent conversation">
+  <section className="defense-card min-w-0 flex flex-col overflow-hidden" aria-label="DEVASHRI AI conversation">
    <header className="px-5 py-4 border-b bg-white flex flex-wrap gap-3 justify-between items-center">
     <div className="flex items-center gap-2">
      <div className="rounded-lg bg-slate-900 p-2 text-cyan-400"><MessageSquareText size={20}/></div>
      <div>
-      <h2 className="font-bold text-slate-900 text-base">ASURA AI Agent</h2>
-      <p className="text-xs text-slate-500">General conversation + connected public live data</p>
+      <h2 className="font-bold text-slate-900 text-base">DEVASHRI</h2>
+      <p className="text-xs text-slate-500">ASURA's AI Agent · conversation and connected public data</p>
      </div>
     </div>
     <div className="flex gap-2 items-center">
@@ -167,7 +168,7 @@ export default function AgentWorkspace(){
       <div className="text-center space-y-2">
        <div className="text-3xl font-semibold text-slate-900">What would you like to explore?</div>
        <p className="text-sm text-slate-600">
-        Talk naturally with ASURA, ask for connected recent observations, or investigate public data with source references.
+        Talk naturally with DEVASHRI, ask for connected recent observations, or investigate public data with source references.
        </p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
@@ -182,7 +183,7 @@ export default function AgentWorkspace(){
     {messages.map(msg=><div key={msg.id} className={'flex '+(msg.role==='user'?'justify-end':'justify-start')}>
      <div className={'max-w-[95%] md:max-w-[88%] rounded-xl px-4 py-3 shadow-sm text-sm space-y-2 '+
       (msg.role==='user'?'bg-slate-900 text-white':'bg-white border border-slate-200 text-slate-800')}>
-      <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+      {msg.role==='assistant'?<RichAgentAnswer text={msg.content}/>:<p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>}
       {msg.error&&<p role="alert" className="bg-amber-50 text-amber-900 p-3 text-xs rounded border border-amber-100">{msg.error}</p>}
       {msg.role==='assistant'&&<div className="pt-1 flex flex-wrap gap-3 items-center">
        {msg.model&&<span className="text-[11px] text-slate-400">{msg.model}</span>}
@@ -197,7 +198,7 @@ export default function AgentWorkspace(){
     </div>)}
     {busy&&<div className="flex justify-start">
      <div className="rounded-xl bg-white border px-4 py-3 flex items-center gap-2 text-sm text-slate-600">
-      <LoaderCircle size={16} className="animate-spin"/> ASURA is preparing a response…
+      <LoaderCircle size={16} className="animate-spin"/> DEVASHRI is preparing a response…
      </div>
     </div>}
     <div ref={bottom}/>
@@ -234,10 +235,10 @@ export default function AgentWorkspace(){
     <form onSubmit={e=>{e.preventDefault();send(draft)}} className="flex gap-2 items-end">
      <textarea ref={input} value={draft} onChange={e=>setDraft(e.target.value)}
       onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(draft)}}}
-      rows={2} maxLength={2500} aria-label="Message ASURA"
-      placeholder="Message ASURA… ask anything, or request recent news, flight data, weather or public camera information."
+      rows={2} maxLength={2500} aria-label="Message DEVASHRI"
+      placeholder="Message DEVASHRI… ask anything, or request recent news, flight data, weather or public camera information."
       className="flex-1 min-w-0 resize-y rounded-lg border border-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-400 max-h-48"/>
-     <button type="submit" disabled={busy||!draft.trim()} aria-label="Send message to ASURA"
+     <button type="submit" disabled={busy||!draft.trim()} aria-label="Send message to DEVASHRI"
       className="p-3 bg-sky-700 text-white rounded-lg disabled:opacity-40"><Send size={19}/></button>
     </form>
     <p className="text-[11px] text-slate-500">
