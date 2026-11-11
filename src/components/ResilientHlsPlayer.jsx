@@ -16,7 +16,7 @@ function getHls(){
  }).catch(e=>{window.__asuraWallHls=null;throw e;});
  return window.__asuraWallHls;
 }
-export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToLiveTick=0,onHealth,onTerminal}){
+export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToLiveTick=0,startupDelayMs=0,onHealth,onTerminal}){
  const videoRef=useRef(null),hlsRef=useRef(null),listenersRef=useRef({onHealth,onTerminal});
  useEffect(()=>{
   if(!jumpToLiveTick)return;
@@ -48,7 +48,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
  };
  useEffect(()=>{listenersRef.current={onHealth,onTerminal}},[onHealth,onTerminal]);
  useEffect(()=>{
-  let alive=true,hls=null,monitor=null,scheduled=null,live=null;
+  let alive=true,hls=null,monitor=null,scheduled=null,live=null,startupTimer=null;
   let progressAt=Date.now(),startAt=Date.now(),previousPosition=-1,networkRecoveries=0,mediaRecoveries=0;
   let lastResumeAttempt=0,stableSince=0,hadVideo=false,mediaReady=false;
   let autoplayDenied=false;
@@ -249,8 +249,10 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    });
    hls.attachMedia(video);
   }
-  initialize().catch(e=>terminal(e.message||'Could not initialize playback'));
+  startupTimer=setTimeout(()=>initialize().catch(e=>terminal(e.message||'Could not initialize playback')),
+    Math.min(3000,Math.max(0,startupDelayMs)));
   return()=>{
+   if(startupTimer)clearTimeout(startupTimer);
    alive=false;
    if(monitor)clearInterval(monitor);
    if(scheduled)clearTimeout(scheduled);
@@ -265,7 +267,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    if(hlsRef.current===hls)hlsRef.current=null;
    try{video.pause();video.removeAttribute('src');video.load()}catch{}
   };
- },[camera?.id,camera?.videoUrl,enabled]);
+ },[camera?.id,camera?.videoUrl,enabled,startupDelayMs]);
  const shade=state.kind==='playing'?'border-emerald-400 bg-emerald-950/90 text-emerald-100':
   state.kind==='error'?'border-red-500 bg-red-950/95 text-red-100':
   state.kind==='recorded'?'border-amber-500 bg-amber-950/90 text-amber-100':
