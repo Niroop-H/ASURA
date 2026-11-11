@@ -16,8 +16,24 @@ function getHls(){
  }).catch(e=>{window.__asuraWallHls=null;throw e;});
  return window.__asuraWallHls;
 }
-export default function ResilientHlsPlayer({camera,enabled,fit='contain',onHealth,onTerminal}){
- const videoRef=useRef(null),listenersRef=useRef({onHealth,onTerminal});
+export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToLiveTick=0,onHealth,onTerminal}){
+ const videoRef=useRef(null),hlsRef=useRef(null),listenersRef=useRef({onHealth,onTerminal});
+ useEffect(()=>{
+  if(!jumpToLiveTick)return;
+  const video=videoRef.current,player=hlsRef.current;
+  if(!video)return;
+  try{
+   const edge=player?.liveSyncPosition;
+   if(Number.isFinite(edge)&&edge>0&&Math.abs(video.currentTime-edge)>1){
+    video.currentTime=edge;
+   }else if(video.seekable?.length){
+    const end=video.seekable.end(video.seekable.length-1);
+    if(Number.isFinite(end)&&Math.abs(video.currentTime-end)>3)
+      video.currentTime=Math.max(0,end-2);
+   }
+   if(video.paused)video.play().catch(()=>{});
+  }catch{}
+ },[jumpToLiveTick]);
  const [state,setState]=useState({kind:'connecting',label:'Connecting to operator…',age:null});
  useEffect(()=>{listenersRef.current={onHealth,onTerminal}},[onHealth,onTerminal]);
  useEffect(()=>{
@@ -70,6 +86,11 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',onHealt
     emit('paused','Paused — press play');
     return;
    }
+   // Follow operator's rolling HLS edge, rather than drifting far behind.
+   if(live===true&&hls&&Number.isFinite(hls.liveSyncPosition)&&
+      hls.liveSyncPosition-video.currentTime>15&&video.readyState>=2){
+    try{video.currentTime=hls.liveSyncPosition;}catch{}
+   }
    const age=Math.max(0,Math.round((Date.now()-progressAt)/1000));
    if(rendering&&age<=12){
     emit(live===false?'recorded':'playing',
@@ -111,6 +132,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',onHealt
     lowLatencyMode:false,
     autoStartLoad:true,
    });
+   hlsRef.current=hls;
    hls.on(Hls.Events.LEVEL_LOADED,(_name,payload)=>{
     live=payload?.details?.live===true;
     if(live===false)emit('recorded','Playlist is not live');
@@ -146,6 +168,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',onHealt
    video.removeEventListener('waiting',onWaiting);
    video.removeEventListener('error',onError);
    try{hls?.destroy()}catch{}
+   if(hlsRef.current===hls)hlsRef.current=null;
    try{video.pause();video.removeAttribute('src');video.load()}catch{}
   };
  },[camera?.id,camera?.videoUrl,enabled]);
