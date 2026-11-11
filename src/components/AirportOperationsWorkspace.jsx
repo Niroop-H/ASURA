@@ -44,7 +44,7 @@ const BOARD_TYPES=[
  ['route','Flights between selected airports']
 ];
 
-export default function AirportOperationsWorkspace(){
+export default function AirportOperationsWorkspace({map}){
  const [origin,setOrigin]=useState(null),[destination,setDestination]=useState(null);
  const [directory,setDirectory]=useState({airports:[],loading:true,matches:0,totalAirports:null});
  const [findAirport,setFindAirport]=useState(''),[offset,setOffset]=useState(0);
@@ -172,6 +172,8 @@ export default function AirportOperationsWorkspace(){
    </div>
    {origin&&<p className="text-xs text-slate-500">Selected: {origin.name} · {origin.lat.toFixed(4)}°, {origin.lon.toFixed(4)}° · {origin.scheduled?'Scheduled service listed':'Scheduled service not listed'}</p>}
   </section>
+
+  {map}
 
   <section className="defense-card p-5 space-y-4">
    <h3 className="font-semibold">Airport Arrivals, Departures & Nearby Aircraft</h3>
