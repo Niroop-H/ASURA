@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {Camera,ExternalLink,MapPin,RefreshCcw,Video,Search,Layers,AlertTriangle} from 'lucide-react';
+import CameraWall from './CameraWall';
 
 const formatTime=value=>{
  if(!value)return 'Not supplied';
@@ -126,7 +127,7 @@ function HlsVideo({url}){
  </div>;
 }
 
-function CameraDetail({camera}){
+function CameraDetail({camera,onAdd}){
  const [imageNonce,setImageNonce]=useState(0);
  const [imgError,setImgError]=useState(false);
  const [playVideo,setPlayVideo]=useState(false);
@@ -149,8 +150,12 @@ function CameraDetail({camera}){
     <p className="text-xs text-slate-600">{camera.provider} · {camera.operator}</p>
     <p className="text-xs text-slate-500">{[camera.continent,camera.country,camera.state,camera.district,camera.region,camera.locality].filter(Boolean).join(' / ')}</p>
    </div>
-   {sourceLink(camera)&&<a href={sourceLink(camera)} target="_blank" rel="noopener noreferrer"
+   <div className="flex flex-wrap gap-2 items-center">
+    {camera.sourceType==='hls'&&<button type="button" onClick={()=>onAdd(camera)}
+     className="rounded bg-sky-700 text-white px-3 py-2 text-xs font-medium">Add live stream to six-camera wall</button>}
+    {sourceLink(camera)&&<a href={sourceLink(camera)} target="_blank" rel="noopener noreferrer"
       className="text-xs text-sky-700 underline flex items-center gap-1">Original operator/provider <ExternalLink size={13}/></a>}
+   </div>
   </div>
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
    <div className="space-y-2">
@@ -208,6 +213,11 @@ export default function PublicCameraExplorer(){
  const [page,setPage]=useState(0),[loading,setLoading]=useState(true),[error,setError]=useState('');
  const [selected,setSelected]=useState(null),[mapShown,setMapShown]=useState(false);
  const [refresh,setRefresh]=useState(0);
+ const [liveOnly,setLiveOnly]=useState(false);
+ const [wallSlots,setWallSlots]=useState(Array(6).fill(null));
+ const [selectedWallSlot,setSelectedWallSlot]=useState(null);
+ const [autoLoading,setAutoLoading]=useState(false);
+ const [autoError,setAutoError]=useState('');
  // Refresh signed Windy image URLs before their short free-tier expiration.
  useEffect(()=>{
   const timer=setInterval(()=>setRefresh(x=>x+1),8*60*1000);
@@ -220,11 +230,12 @@ export default function PublicCameraExplorer(){
  },[]);
  const params=useMemo(()=>{
   const p=new URLSearchParams({page:String(page),source:filters.source});
+  if(liveOnly)p.set('stream','hls');
   for(const key of ['continent','country','state','district','region','q']){
    if(filters[key])p.set(key,filters[key]);
   }
   return p.toString();
- },[page,filters]);
+ },[page,filters,liveOnly]);
  useEffect(()=>{
   let alive=true;const controller=new AbortController();
   setLoading(true);setError('');
@@ -261,6 +272,40 @@ export default function PublicCameraExplorer(){
  const statuses=records.sourceStatuses||[];
  const windyConfigured=statuses.some(s=>s.name==='Windy Webcams'&&s.connected);
  const caltransStatus=statuses.find(s=>s.name==='Caltrans CWWP2');
+ const assignToWall=(camera)=>{
+  if(camera?.sourceType!=='hls'||!camera.videoUrl){
+    setAutoError('Only authorized, continuous HLS video can be placed on the live camera wall. This record is a snapshot or clip.');
+    return;
+  }
+  setAutoError('');
+  const duplicate=wallSlots.findIndex(c=>c?.id===camera.id);
+  if(duplicate>=0){setSelectedWallSlot(duplicate);return;}
+  let target=selectedWallSlot===null?wallSlots.findIndex(c=>!c):selectedWallSlot;
+  if(target<0)target=0;
+  setWallSlots(prev=>prev.map((item,i)=>i===target?camera:item));
+  setSelectedWallSlot(null);
+ };
+ const autoFillWall=async()=>{
+  setAutoLoading(true);setAutoError('');
+  try{
+   const qs=new URLSearchParams();
+   for(const key of ['continent','country','state','district','region','source']){
+    if(filters[key])qs.set(key,filters[key]);
+   }
+   const response=await fetch('/api/cameras/live?'+qs,{cache:'no-store'});
+   const data=await response.json();
+   if(!data.success)throw new Error(data.error||'Live feed search failed');
+   const sources=(data.cameras||[]).filter(c=>c.sourceType==='hls'&&c.videoUrl).slice(0,6);
+   if(!sources.length){
+    setAutoError('No verified public HLS video feeds for this selected region or provider. Choose North America → United States → California, or arrange an authorized live-video provider for this country.');
+    return;
+   }
+   setWallSlots([...sources,...Array(6-sources.length).fill(null)]);
+   setSelectedWallSlot(null);
+   if(sources.length<6)setAutoError('Only '+sources.length+' public HLS playlists responded during the source check. Empty tiles remain unassigned; inactive streams were not fabricated.');
+  }catch(e){setAutoError(e.message||'Unable to load live wall feeds')}
+  finally{setAutoLoading(false);}
+ };
  return <div className="space-y-6">
   <section className="defense-card p-5 space-y-4">
    <div className="flex flex-wrap justify-between gap-3">
@@ -305,6 +350,10 @@ export default function PublicCameraExplorer(){
       <option value="all">All connected sources</option><option value="caltrans">Caltrans CWWP2</option><option value="tfl">TfL JamCams (London)</option><option value="windy">Windy Webcams</option>
      </select>
     </label>
+    <label className="flex items-center gap-2 text-xs font-medium rounded border px-3 py-2 bg-white">
+      <input type="checkbox" checked={liveOnly} onChange={e=>{setLiveOnly(e.target.checked);setPage(0);setSelected(null);}}/>
+      Only continuous HLS video
+    </label>
     <button type="button" onClick={()=>setMapShown(x=>!x)} className="rounded border px-3 py-2 text-sm flex items-center gap-2">
       <MapPin size={15}/>{mapShown?'Hide map':'Map view'}
     </button>
@@ -331,6 +380,11 @@ export default function PublicCameraExplorer(){
     {' · '} Directory fetched: {formatTime(records.retrievedAt)}. A listing or in-service flag is not proof that a camera's image is current.
    </p>
   </section>
+  <CameraWall slots={wallSlots} selectedSlot={selectedWallSlot}
+    onSelectSlot={setSelectedWallSlot}
+    onRemove={index=>setWallSlots(previous=>previous.map((camera,i)=>i===index?null:camera))}
+    onClear={()=>{setWallSlots(Array(6).fill(null));setSelectedWallSlot(null);setAutoError('');}}
+    onAutofill={autoFillWall} autoLoading={autoLoading} autoError={autoError}/>
   {mapShown&&<CameraPinMap cameras={cameras} onSelect={setSelected} selectedId={selected?.id}/>}
   <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
    <section className="defense-card xl:col-span-1 overflow-hidden">
@@ -340,15 +394,20 @@ export default function PublicCameraExplorer(){
     </div>
     {loading&&<p className="p-4 text-sm text-slate-500">Loading public feed metadata…</p>}
     <div className="max-h-[680px] overflow-y-auto divide-y divide-slate-100">
-     {!loading&&cameras.map(c=><button key={c.id} type="button" onClick={()=>setSelected(c)}
-       className={'p-3 w-full text-left hover:bg-slate-50 '+(selected?.id===c.id?'bg-sky-50':'')}>
+     {!loading&&cameras.map(c=><div key={c.id} className={'flex items-stretch gap-2 p-2 '+(selected?.id===c.id?'bg-sky-50':'')}>
+      <button type="button" onClick={()=>setSelected(c)} className="flex-1 min-w-0 text-left hover:bg-slate-50 rounded p-2">
        <div className="flex gap-2 items-center justify-between">
         <span className="font-medium text-sm text-slate-900 line-clamp-2">{c.title}</span>
-        {c.videoUrl?<Video size={15} className="text-sky-600 flex-shrink-0"/>:<Camera size={15} className="text-slate-400 flex-shrink-0"/>}
+        {c.sourceType==='hls'?<Video size={15} className="text-sky-600 flex-shrink-0"/>:<Camera size={15} className="text-slate-400 flex-shrink-0"/>}
        </div>
        <span className="text-xs text-slate-500 block mt-1">{[c.district,c.region,c.locality].filter(Boolean).join(' · ')}</span>
-       <span className="text-xs text-slate-500 block">{c.provider} · {c.sourceType==='clip'?'Recent MP4 clip':c.videoUrl?'HLS stream URL available':'Snapshot / provider preview'}</span>
-      </button>)}
+       <span className="text-xs text-slate-500 block">{c.provider} · {c.sourceType==='hls'?'Public HLS video stream':c.sourceType==='clip'?'Recorded MP4 clip':'Snapshot / preview (not live video)'}</span>
+      </button>
+      {c.sourceType==='hls'&&<button type="button" onClick={()=>assignToWall(c)}
+       className="px-2 py-2 self-center rounded border border-sky-300 text-sky-700 text-[11px] whitespace-nowrap hover:bg-sky-50">
+        Add to wall
+      </button>}
+     </div>)}
      {!loading&&!cameras.length&&<p className="p-4 text-sm text-slate-500">No operator-published cameras in this connected-source selection.</p>}
     </div>
     <div className="p-3 flex justify-between items-center border-t text-xs gap-2">
@@ -360,7 +419,7 @@ export default function PublicCameraExplorer(){
     </div>
    </section>
    <div className="xl:col-span-2">
-    <CameraDetail key={selected?.id||'unselected'} camera={selected}/>
+    <CameraDetail key={selected?.id||'unselected'} camera={selected} onAdd={assignToWall}/>
    </div>
   </div>
   <section className="defense-card p-4 space-y-2">
