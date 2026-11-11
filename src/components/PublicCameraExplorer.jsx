@@ -298,7 +298,7 @@ export default function PublicCameraExplorer(){
    const url=new URL(manualUrl.trim());
    const host=url.hostname.toLowerCase();
    const privateName=host==='localhost'||host.endsWith('.local')||host.endsWith('.internal')||
-     host.endsWith('.localhost')||/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(host);
+     host.endsWith('.localhost')||/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
    if(url.protocol!=='https:'||url.username||url.password||privateName||
       !host.includes('.')||!url.pathname.toLowerCase().endsWith('.m3u8')){
      throw new Error('Enter a public HTTPS HLS playlist (.m3u8), not a private camera address, RTSP feed or APK.');
