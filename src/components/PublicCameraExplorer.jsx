@@ -153,6 +153,11 @@ function CameraDetail({camera,onAdd}){
    <div className="flex flex-wrap gap-2 items-center">
     {camera.sourceType==='hls'&&<button type="button" onClick={()=>onAdd(camera)}
      className="rounded bg-sky-700 text-white px-3 py-2 text-xs font-medium">Add live stream to six-camera wall</button>}
+    {camera.imageUrl&&['Caltrans CWWP2','TfL JamCams'].includes(camera.provider)&&
+      <a href={'/agent?'+new URLSearchParams({camera:camera.id,cameraTitle:camera.title}).toString()}
+       className="rounded border border-sky-300 text-sky-700 px-3 py-2 text-xs font-medium">
+       Ask ASURA to analyze snapshot
+      </a>}
     {sourceLink(camera)&&<a href={sourceLink(camera)} target="_blank" rel="noopener noreferrer"
       className="text-xs text-sky-700 underline flex items-center gap-1">Original operator/provider <ExternalLink size={13}/></a>}
    </div>
