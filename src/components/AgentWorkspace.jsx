@@ -27,11 +27,22 @@ function SourceDetails({msg,onReview}){
  if(!records.length&&!statuses.length&&!msg.snapshotReviewed)return null;
  return <div className="mt-3 border-t pt-3 border-slate-200 space-y-3">
   <div className="flex flex-wrap gap-2">
-   {statuses.map(s=><span key={s.source} title={s.note||s.error||s.provider||''}
+   {statuses.map(s=><span key={s.source} title={[s.note,s.error,s.provider,
+      s.observationType,s.providerTime?'Provider time: '+readableDate(s.providerTime):''].filter(Boolean).join(' · ')}
      className={'rounded border px-2 py-1 text-[11px] '+(s.success?'bg-white text-slate-600':'bg-amber-50 border-amber-300 text-amber-900')}>
-     {s.source}: {s.success?'retrieved':'unavailable'}
+     {s.source}: {s.success?'source retrieved':'source unavailable'}
    </span>)}
   </div>
+  {msg.dataVerification==='unavailable'&&<div role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+   <strong>Verified airport data unavailable.</strong> Receiver-observed aircraft positions cannot confirm landings or departures.
+  </div>}
+  {msg.dataVerification==='provider-reported-partial'&&<p className="text-xs text-slate-600">
+   Flight operations are provider-reported and may cover only the first page. Check actual arrival/departure times separately from schedules.
+  </p>}
+  {msg.externalBoardUrl&&<a href={msg.externalBoardUrl} target="_blank" rel="noopener noreferrer"
+   className="text-xs underline text-sky-700 inline-flex items-center gap-1">
+   Open external airport arrivals/departures board <ExternalLink size={12}/>
+  </a>}
   {msg.snapshotReviewed&&<p className="text-xs text-amber-900 bg-amber-50 rounded p-2">
    Snapshot reviewed: {msg.snapshotReviewed.title}, downloaded {readableDate(msg.snapshotReviewed.checkedAt)}.
    Original capture time not verified. This is not continuous CCTV analysis.
@@ -47,6 +58,11 @@ function SourceDetails({msg,onReview}){
       <p className="text-slate-500">
        {r.provider} · observed/published: {readableDate(r.observedAt)} · retrieved: {readableDate(r.retrievedAt)}
       </p>
+      {Number.isFinite(r.positionAgeSeconds)&&<p className="text-slate-500">
+       Aircraft position age: {r.positionAgeSeconds} seconds ·
+       {Number.isFinite(r.distanceNm)?' '+r.distanceNm+' NM from search center ·':''}
+       Not a verified arrival or departure
+      </p>}
       <div className="flex flex-wrap gap-4">
        {r.url&&<a href={r.url} target="_blank" rel="noopener noreferrer"
         className="text-sky-700 underline inline-flex items-center gap-1">
@@ -113,7 +129,9 @@ export default function AgentWorkspace(){
    setMessages(m=>[...m,{id:Date.now()+'a',role:'assistant',content:d.answer||'',
     error:d.success?null:d.error||'AI response unavailable',model:d.model||null,
     records:d.records||[],statuses:d.statuses||[],snapshotReviewed:d.snapshotReviewed||null,
-    checkedAt:d.checkedAt||null,generatedAt:d.generatedAt||null}]);
+    checkedAt:d.checkedAt||null,generatedAt:d.generatedAt||null,
+    dataVerification:d.dataVerification||null,answerType:d.answerType||null,
+    externalBoardUrl:d.externalBoardUrl||null,airport:d.airport||null}]);
    if(!d.success&&d.diagnostics?.stage==='model-discovery')setHealth(x=>({...x,ready:false,error:d.error}));
   }catch(e){
    if(e.name!=='AbortError')setMessages(m=>[...m,{id:Date.now()+'err',role:'assistant',
