@@ -4,6 +4,46 @@ import {searchAirports} from '@/lib/airports';
 
 export const CONTEXT_SOURCES=['news','weather','flights','cameras','airports','earthquakes','events','search'];
 const trimmed=(v,n=240)=>String(v||'').replace(/\s+/g,' ').slice(0,n);
+
+const PLACES=[
+ {label:'Bengaluru, India',lat:12.9716,lon:77.5946,terms:['bengaluru','bangalore']},
+ {label:'London, United Kingdom',lat:51.5074,lon:-0.1278,terms:['london']},
+ {label:'Singapore',lat:1.3521,lon:103.8198,terms:['singapore']},
+ {label:'New York, USA',lat:40.7128,lon:-74.0060,terms:['new york','nyc']},
+ {label:'Dubai, UAE',lat:25.2048,lon:55.2708,terms:['dubai']},
+ {label:'Mumbai, India',lat:19.0760,lon:72.8777,terms:['mumbai','bombay']},
+ {label:'New Delhi, India',lat:28.6139,lon:77.2090,terms:['new delhi','delhi']},
+ {label:'Chennai, India',lat:13.0827,lon:80.2707,terms:['chennai']},
+ {label:'Hyderabad, India',lat:17.3850,lon:78.4867,terms:['hyderabad']},
+ {label:'Kolkata, India',lat:22.5726,lon:88.3639,terms:['kolkata','calcutta']},
+ {label:'Paris, France',lat:48.8566,lon:2.3522,terms:['paris']},
+ {label:'Tokyo, Japan',lat:35.6762,lon:139.6503,terms:['tokyo']},
+];
+const REGION_WEATHER={bengaluru:PLACES[0],london:PLACES[1],
+ singapore:PLACES[2],newyork:PLACES[3],dubai:PLACES[4]};
+async function weatherLocation(question,region){
+ const q=question.toLowerCase();
+ const known=PLACES.find(city=>city.terms.some(t=>new RegExp('\\b'+t+'\\b','i').test(q)));
+ if(known)return known;
+ const m=question.match(/\b(?:weather|temperature|forecast|rain|conditions?)\s+(?:today\s+|currently\s+|right\s+now\s+)?(?:in|at|near|for)\s+([a-zA-Z][a-zA-Z .-]{1,55})/i)
+  ||question.match(/\b(?:in|at|near|for)\s+([a-zA-Z][a-zA-Z .-]{1,55})\s+(?:weather|forecast|temperature)\b/i);
+ if(!m)return REGION_WEATHER[region]||REGION_WEATHER.bengaluru;
+ const location=m[1].split(/\b(?:today|tomorrow|right now|currently|this|please|and|with|on|nearby)\b/i)[0].replace(/[?.!,]+$/,'').trim();
+ if(!location)return REGION_WEATHER[region]||REGION_WEATHER.bengaluru;
+ if(!process.env.OPENWEATHERMAP_API_KEY)throw new Error('Location "'+location+'" requires geocoding; no geocoding API key is connected');
+ const endpoint=new URL('https://api.openweathermap.org/geo/1.0/direct');
+ endpoint.searchParams.set('q',location.slice(0,50));
+ endpoint.searchParams.set('limit','1');
+ endpoint.searchParams.set('appid',process.env.OPENWEATHERMAP_API_KEY);
+ const r=await fetch(endpoint,{cache:'no-store',signal:AbortSignal.timeout(8500)});
+ if(!r.ok)throw new Error('Location lookup provider HTTP '+r.status);
+ const results=await r.json();
+ const city=results?.[0];
+ if(!Number.isFinite(city?.lat)||!Number.isFinite(city?.lon))throw new Error('Location "'+location+'" could not be verified by geocoding provider');
+ return {label:[city.name,city.state,city.country].filter(Boolean).join(', ').slice(0,90),
+  lat:city.lat,lon:city.lon};
+}
+
 const validUrl=v=>{try{let u=new URL(v);return u.protocol==='https:'?u.href:null;}catch{return null;}};
 const intent={
  news:/\b(news|headlines|breaking|reported|article|journalism|politics|latest updates)\b/i,
@@ -108,7 +148,9 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
    if(source==='cameras')return {source,success:true,...await cameraRecords(question)};
    if(source==='airports')return {source,success:true,...await airportRecords(question)};
    if(source==='search')return {source,success:true,...await webRecords(question)};
-   const data=await getLiveSource(source,source==='flights'?{region}:{});
+   const args=source==='flights'?{region}:
+    source==='weather'?await weatherLocation(question,region):{};
+   const data=await getLiveSource(source,args);
    if(!data?.success)throw new Error(data?.error||'Provider did not return records');
    return {source,success:true,provider:data.provider,records:(data.records||[]).slice(0,source==='flights'?12:10)
     .map((r,i)=>recordFrom(r,source,data.provider,data.retrievedAt,i)),
