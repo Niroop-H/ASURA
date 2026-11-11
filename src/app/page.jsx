@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import Header from '@/components/Header';
 import LiveDataViewer from '@/components/LiveDataViewer';
+import LiveGeoMap from '@/components/LiveGeoMap';
 export default function DashboardPage() {
  return <div className="p-6 md:p-8 space-y-7 max-w-7xl mx-auto w-full">
   <Header title="ASURA Live Observations" subtitle="Public source data, freshness and attribution"/>
-  <LiveDataViewer/>
+  <LiveGeoMap/>
+  <LiveDataViewer initialSource="flights"/>
   <section className="defense-card p-5 space-y-3">
     <h2 className="font-semibold">Viewers and tools</h2>
     <div className="flex flex-wrap gap-3 text-sm">
