@@ -1,7 +1,7 @@
 'use client';
 
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Maximize,Minimize,Play,Pause,RotateCcw,X,MonitorPlay,AlertTriangle,ExternalLink,Scan} from 'lucide-react';
+import {Maximize,Minimize,Play,Pause,RotateCcw,X,MonitorPlay,AlertTriangle,ExternalLink,Scan,Radio} from 'lucide-react';
 import ResilientHlsPlayer from './ResilientHlsPlayer';
 
 const MAX=6;
@@ -14,12 +14,13 @@ function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,on
  const [status,setStatus]=useState(null);
  const [fit,setFit]=useState('contain');
  const [revision,setRevision]=useState(0);
+ const [goLiveTick,setGoLiveTick]=useState(0);
  useEffect(()=>{
   const handler=()=>setFullscreen(document.fullscreenElement===root.current);
   document.addEventListener('fullscreenchange',handler);
   return()=>document.removeEventListener('fullscreenchange',handler);
  },[]);
- useEffect(()=>{setPaused(false);setStatus(null);setFit('contain');setRevision(0)},[camera?.id]);
+ useEffect(()=>{setPaused(false);setStatus(null);setFit('contain');setRevision(0);setGoLiveTick(0)},[camera?.id]);
  const goFullscreen=async()=>{
   try{
    if(document.fullscreenElement===root.current)await document.exitFullscreen();
@@ -40,6 +41,11 @@ function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,on
       className="p-1.5 hover:bg-slate-700 rounded" aria-label={'Toggle picture fit on camera '+(index+1)}>
       <Scan size={14}/>
     </button>}
+    {camera&&live&&<button type="button" onClick={()=>setGoLiveTick(n=>n+1)}
+      title="Go to latest available HLS segment (operator latency may remain)"
+      className="p-1.5 hover:bg-slate-700 rounded" aria-label={'Go live on camera '+(index+1)}>
+      <Radio size={14}/>
+    </button>}
     {camera&&live&&<button type="button" onClick={()=>setRevision(n=>n+1)}
       title="Reconnect stream" className="p-1.5 hover:bg-slate-700 rounded"
       aria-label={'Reconnect camera '+(index+1)}><RotateCcw size={14}/></button>}
@@ -58,7 +64,7 @@ function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,on
   </div>
   <div className="aspect-video relative flex-1 min-h-0 bg-black">
    {live?<ResilientHlsPlayer key={camera.id+':'+revision}
-      camera={camera} enabled={!paused&&!allPaused} fit={fit}
+      camera={camera} enabled={!paused&&!allPaused} fit={fit} jumpToLiveTick={goLiveTick}
       onHealth={(cameraId,health)=>{setStatus(health.label);onHealth?.(index,cameraId,health)}}
       onTerminal={record=>onTerminal?.(index,record)}/>:
     <button type="button" onClick={()=>onSelect(index)}
