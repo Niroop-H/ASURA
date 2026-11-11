@@ -420,22 +420,20 @@ export default function PublicCameraExplorer(){
     sparePoolRef.current=valid;
     failedStreamsRef.current=new Set();
     const byId=new Map(valid.map(c=>[c.id,c]));
-    let replaced=0,missing=0;
+    const oldMissing=wallSlots.some(c=>c?.autoAssigned&&!byId.has(c.id));
     setWallSlots(prev=>{
      const used=new Set();
-     const next=prev.map(camera=>{
+     return prev.map(camera=>{
       if(!camera?.autoAssigned)return camera;
       const same=byId.get(camera.id);
       if(same&&!used.has(same.id)){used.add(same.id);return same;}
       const spare=valid.find(c=>!used.has(c.id));
-      if(spare){used.add(spare.id);replaced++;return spare;}
-      missing++;return null;
+      if(spare){used.add(spare.id);return spare;}
+      return null;
      });
-     return next;
     });
-    if(replaced||missing)setAutoError(
-     'Restored camera sources were checked again: '+replaced+' unavailable feed(s) replaced, '+
-     missing+' slot(s) left empty. Use Start all once if your browser requires a playback gesture.');
+    if(oldMissing)setAutoError(
+     'Some saved public camera streams have gone offline. ASURA attempted to replace them with tested video sources. Use Start all if Chrome requires a playback gesture.');
    })
    .catch(e=>{if(active&&e.name!=='AbortError')
     setAutoError('Saved cameras could not be revalidated: '+String(e.message||'network error').slice(0,140));});
