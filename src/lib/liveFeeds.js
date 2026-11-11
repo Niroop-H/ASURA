@@ -221,3 +221,38 @@ export async function getLiveSource(source, options = {}) {
       error: error.name === 'TimeoutError' ? 'Provider timed out' : error.message };
   }
 }
+
+/**
+ * Locate a publicly broadcasting aircraft by ADS-B callsign, registration or
+ * six-digit ICAO address anywhere covered by the network.
+ * This is not a complete worldwide database or itinerary search.
+ */
+export async function findLiveAircraft(mode, rawQuery) {
+  const paths = { callsign: 'callsign', registration: 'registration', icao: 'icao' };
+  const query = typeof rawQuery === 'string' ? rawQuery.trim().toUpperCase() : '';
+  if (!paths[mode] || !/^[A-Z0-9-]{3,12}$/.test(query) ||
+      (mode === 'icao' && !/^[A-F0-9]{6}$/.test(query))) {
+    return { success: false, status: 400, error: 'Search must contain a valid callsign, registration or six-digit ICAO hex address.' };
+  }
+  try {
+    const data = await retrieve('https://api.adsb.lol/v2/' + paths[mode] + '/' + encodeURIComponent(query), 60);
+    if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft lookup response');
+    const now = Number(data.now) > 1e12 ? Number(data.now) / 1000 : Number(data.now) || Date.now() / 1000;
+    const records = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) &&
+      Number(a.seen_pos ?? 0) <= 120).slice(0, 25).map(a => ({
+      id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
+      lat: a.lat, lon: a.lon, source: 'adsb.lol',
+      registration: a.r || null, aircraftType: a.t || null, icao24: a.hex || null,
+      altitudeFeet: Number.isFinite(a.alt_baro) ? a.alt_baro : null,
+      speedKnots: Number.isFinite(a.gs) ? a.gs : null,
+      heading: Number.isFinite(a.track) ? a.track : null,
+      ageSeconds: Math.round(Number(a.seen_pos || 0)),
+      observedAt: when((now - Number(a.seen_pos || 0)) * 1000),
+    }));
+    return { success: true, provider: 'adsb.lol', retrievedAt: new Date().toISOString(),
+      mode, query, records, count: records.length,
+      coverage: 'Broadcasting aircraft with recent positions in network coverage only; no itinerary guaranteed.' };
+  } catch (error) {
+    return { success: false, status: 502, error: error.message || 'Aircraft lookup unavailable' };
+  }
+}
