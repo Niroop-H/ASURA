@@ -75,9 +75,17 @@ export default function AgentWorkspace(){
  const [health,setHealth]=useState(null);
  const [showSettings,setShowSettings]=useState(false);
  const [copied,setCopied]=useState(null);
+ const [linkedCamera,setLinkedCamera]=useState(null);
  const controller=useRef(null);
  const bottom=useRef(null);
  const input=useRef(null);
+ useEffect(()=>{
+  const params=new URLSearchParams(window.location.search);
+  const cameraId=params.get('camera')||'';
+  const title=params.get('cameraTitle')||'Selected public camera';
+  if(/^(?:caltrans-|tfl-)[a-zA-Z0-9 _-]{1,110}$/.test(cameraId))
+    setLinkedCamera({id:cameraId,title:title.slice(0,110)});
+ },[]);
  useEffect(()=>{
   let mounted=true;
   fetch('/api/agent',{cache:'no-store'}).then(r=>r.json()).then(d=>{if(mounted)setHealth(d)})
@@ -144,6 +152,17 @@ export default function AgentWorkspace(){
     Check your server-side Groq key and model permissions in <Link className="underline" href="/keys">API Key Holders</Link>.
    </div>}
    <div className="flex-1 px-4 md:px-6 py-6 bg-slate-50 min-h-[380px] max-h-[68vh] overflow-y-auto space-y-5">
+    {linkedCamera&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 flex gap-3 flex-wrap justify-between items-center">
+     <div>
+      <p className="text-sm font-semibold text-slate-900">Public snapshot: {linkedCamera.title}</p>
+      <p className="text-xs text-slate-600">ASURA can inspect one published still image, not monitor continuous camera footage. Capture time is not independently verified.</p>
+     </div>
+     <button type="button" disabled={busy}
+      onClick={()=>send('Describe only visible general traffic, road and visibility conditions in the published snapshot of '+linkedCamera.title+'. Do not identify people or imply it is live video.',{reviewCamera:true,cameraId:linkedCamera.id})}
+      className="text-xs rounded bg-sky-700 text-white px-3 py-2 disabled:opacity-50">
+      Analyze public snapshot
+     </button>
+    </div>}
     {!messages.length&&<div className="max-w-2xl mx-auto pt-8 space-y-6">
       <div className="text-center space-y-2">
        <div className="text-3xl font-semibold text-slate-900">What would you like to explore?</div>
