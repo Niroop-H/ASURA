@@ -24,6 +24,8 @@ const system=[
  'For grounded recent factual claims cite short IDs like [news:1] or [flights:2]. Explain provider, observation time versus retrieval time, partial coverage and uncertainty.',
  'The NewsAPI feed is a general English-language headline sample, not a city-specific feed. Never describe its articles as Bengaluru or other local headlines unless those places are explicitly in the retrieved records.',
  'Weather information is point-based for the reported city, not a whole-country assessment. Never substitute observations from a different city.',
+ 'For weather distinguish provider current conditions (observedAt) from three-hour forecasts (forecastFor); never describe model predictions as observed temperatures.',
+ 'The location selected on the Worldwide Weather page is exact-point context, not the weather for an entire state, city or country. Respect missing and stale observations.',
  'Provider metadata is not exhaustive. Never claim a small returned record sample represents all aircraft or all active camera streams.',
  'A provider URL, response timestamp, map icon or an "in service" camera flag never proves underlying video is real-time.',
  'A public-camera directory record is metadata. Do not claim to have watched CCTV unless this turn explicitly includes a snapshot image.',
@@ -80,8 +82,19 @@ export async function POST(request){
  const mode=['auto','live','general'].includes(body?.mode)?body.mode:'auto';
  const active=selectAgentSources(message,mode,body?.sources);
  const region=['bengaluru','london','singapore','newyork','dubai'].includes(body?.region)?body.region:'bengaluru';
+ // The worldwide weather page can supply exact user-selected coordinates.
+ // Never silently use the flight-region selector as a weather location.
+ let weatherPoint=null;
+ if(body?.weatherPoint&&typeof body.weatherPoint==='object'){
+  const {lat,lon,label,state,country}=body.weatherPoint;
+  if(typeof lat==='number'&&typeof lon==='number'&&
+   Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180){
+   weatherPoint={lat,lon,label:String(label||'Selected weather point').slice(0,140),
+    state:String(state||'').slice(0,90),country:String(country||'').slice(0,80)};
+  }
+ }
  let evidence={records:[],statuses:[],checkedAt:new Date().toISOString()};
- if(active.length)evidence=await assembleAgentContext(message,active,{region});
+ if(active.length)evidence=await assembleAgentContext(message,active,{region,weatherPoint});
  const cameraId=typeof body?.cameraId==='string'?body.cameraId:'';
  const wantsImage=body?.reviewCamera===true&&Boolean(cameraId);
  let screenshot=null;
@@ -100,6 +113,8 @@ export async function POST(request){
    observedAt:r.observedAt,retrievedAt:r.retrievedAt,url:r.url,
    distanceNm:r.distanceNm??null,positionAgeSeconds:r.positionAgeSeconds??null,
    dataCategory:r.dataCategory||null,operationVerified:r.operationVerified===true,
+   weatherDataType:r.weatherDataType||null,forecastFor:r.forecastFor||null,
+   observationAgeMinutes:r.observationAgeMinutes??null,
   })),
   cameraSnapshot:screenshot?.success?
    {title:screenshot.camera.title,provider:screenshot.camera.provider,
