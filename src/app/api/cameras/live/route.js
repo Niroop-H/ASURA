@@ -31,6 +31,30 @@ const playlistRequest=async url=>{
  if(text.length>250000||!text.trimStart().startsWith('#EXTM3U'))return null;
  return text;
 };
+// A playlist can be reachable while its actual video fragments are forbidden
+// or offline. Inspect a small amount of one real transport-stream fragment.
+async function validateSegment(url){
+ if(!url||typeof url!=='string')return false;
+ const u=new URL(url);
+ if(u.protocol!=='https:'||u.hostname!=='wzmedia.dot.ca.gov')return false;
+ const response=await fetch(u,{
+  method:'GET',cache:'no-store',signal:AbortSignal.timeout(4500),
+  headers:{Origin:'https://asura-topaz.vercel.app',Accept:'video/mp2t,*/*'},
+ });
+ if(!response.ok)return false;
+ const cors=response.headers.get('access-control-allow-origin');
+ if(cors!=='*'&&cors!=='https://asura-topaz.vercel.app')return false;
+ const type=response.headers.get('content-type')||'';
+ if(!/video\/mp2t|application\/octet-stream/i.test(type))return false;
+ if(!response.body)return false;
+ const reader=response.body.getReader();
+ try{
+  const first=await reader.read();
+  const bytes=first.value;
+  return Boolean(bytes&&bytes.length>0&&
+    (bytes[0]===0x47||(bytes.length>188&&bytes[188]===0x47)));
+ }finally{try{await reader.cancel()}catch{}}
+}
 const firstMediaVariant=(text,base)=>{
  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
  // Variant master playlist; select the lowest declared bitrate for wall stability.
@@ -59,11 +83,18 @@ async function checkPlaylist(camera){
   if(!media||!media.includes('#EXTINF:')||media.includes('#EXT-X-ENDLIST'))return null;
   const paths=media.split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&!x.startsWith('#'));
   if(paths.length<2)return null;
-  // Confirm that the media playlist exposes plausible same-provider segments.
-  for(const segment of paths.slice(-2)){
-   const u=new URL(segment,variant||camera.videoUrl);
-   if(u.protocol!=='https:'||u.hostname!=='wzmedia.dot.ca.gov')return null;
+  // Confirm the video fragments themselves are accessible, not merely
+  // metadata. Prefer a segment that should already be fully written.
+  const possible=paths.slice(-3,-1).reverse().map(segment=>
+   new URL(segment,variant||camera.videoUrl));
+  if(!possible.length)return null;
+  let verifiedSegment=false;
+  for(const url of possible){
+   if(url.protocol!=='https:'||url.hostname!=='wzmedia.dot.ca.gov')return null;
+   try{if(await validateSegment(url.href)){verifiedSegment=true;break;}}
+   catch{}
   }
+  if(!verifiedSegment)return null;
   const dates=Array.from(media.matchAll(/#EXT-X-PROGRAM-DATE-TIME:([^\r\n]+)/g));
   const observed=dates.length?Date.parse(dates[dates.length-1][1]):NaN;
   const age=Number.isFinite(observed)?Math.round((Date.now()-observed)/1000):null;
@@ -72,7 +103,8 @@ async function checkPlaylist(camera){
   return {...camera,verifiedAt:new Date().toISOString(),
    mediaSequence:media.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/)?.[1]||null,
    segmentTime:age!==null?new Date(observed).toISOString():null,
-   segmentAgeSeconds:age,streamStatus:'Active HLS media playlist (browser playback not yet confirmed)',
+   segmentAgeSeconds:age,segmentFetchVerified:true,
+   streamStatus:'Active HLS media playlist and transport-stream segment accessible (browser decoding not yet verified)',
   };
  }catch{return null;}
 }
@@ -106,7 +138,7 @@ export async function GET(request){
   const response=NextResponse.json({success:true,provider:'Caltrans CWWP2',
    checkedAt:new Date().toISOString(),candidates:candidates.length,
    count:cameras.length,cameras,verifiedLevel:'HLS media playlist with fragments',
-   note:'Active playlists selected; exact camera exposure latency and successful decoding must be verified by the browser. The wall has spare feeds for failures.'});
+   note:'Video playlist AND actual transport-stream fragment validated before selection. Browser decoding, camera exposure latency and uninterrupted availability remain unverified.'});
   response.headers.set('Cache-Control','public, s-maxage=20, stale-while-revalidate=15');
   return response;
  }catch(error){
