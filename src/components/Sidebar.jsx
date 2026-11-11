@@ -22,6 +22,7 @@ import {
   Globe,
   Video,
   Search,
+  CloudSun,
   ExternalLink
 } from 'lucide-react';
 
@@ -31,6 +32,7 @@ const NAV_LINKS = [
   { href: '/search', label: 'Live Web Search', icon: Search },
   { href: '/tracking', label: 'Observations', icon: Crosshair },
   { href: '/map', label: 'Geospatial View', icon: Map },
+  { href: '/weather', label: 'Worldwide Weather', icon: CloudSun },
   { href: '/flights', label: 'Live Flight Explorer', icon: Plane },
   { href: '/airports', label: 'All Airports & Boards', icon: Building2 },
   { href: '/satellite', label: 'Satellite Imagery', icon: Satellite },
