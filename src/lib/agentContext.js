@@ -1,6 +1,7 @@
 import {getLiveSource} from '@/lib/liveFeeds';
 import {getCaltransCatalog,getTflCatalog} from '@/lib/publicCameras';
 import {searchAirports} from '@/lib/airports';
+import {identifyAirport} from '@/lib/aviationVerification';
 
 export const CONTEXT_SOURCES=['news','weather','flights','cameras','airports','earthquakes','events','search'];
 const trimmed=(v,n=240)=>String(v||'').replace(/\s+/g,' ').slice(0,n);
@@ -69,16 +70,23 @@ const recordFrom=(record,source,provider,retrievedAt,index)=>{
  const fields=[
   record.registration?'Registration: '+trimmed(record.registration,40):'',
   record.aircraftType?'Aircraft type: '+trimmed(record.aircraftType,50):'',
-  Number.isFinite(record.altitudeFeet)?'Altitude: '+record.altitudeFeet+' ft':'',
+  source==='flights'&&Number.isFinite(record.distanceNm)?'Distance from search center: '+record.distanceNm+' NM':'',
+  source==='flights'&&Number.isFinite(record.positionAgeSeconds)?'Position age at retrieval: '+record.positionAgeSeconds+' seconds':'',
+  source==='flights'&&record.positionType?'Receiver position type: '+trimmed(record.positionType,30):'',
+  Number.isFinite(record.altitudeFeet)?'Reported barometric altitude: '+record.altitudeFeet+' ft':'',
   Number.isFinite(record.speedKnots)?'Ground speed: '+record.speedKnots+' knots':'',
   Number.isFinite(record.temperatureC)?'Temperature: '+record.temperatureC+' °C':'',
   Number.isFinite(record.windKmh)?'Wind: '+Math.round(record.windKmh)+' km/h':'',
  ].filter(Boolean);
  return {id:source+':'+(index+1),source,provider:trimmed(provider,70),
-  title:trimmed(record.title,200),description:trimmed([record.description,...fields].filter(Boolean).join(' · '),440),
+  title:trimmed(record.title,200),description:trimmed([record.description,...fields].filter(Boolean).join(' · '),550),
   observedAt:record.observedAt||null,retrievedAt:retrievedAt||new Date().toISOString(),
   url:validUrl(record.url),lat:Number.isFinite(record.lat)?record.lat:null,
-  lon:Number.isFinite(record.lon)?record.lon:null};
+  lon:Number.isFinite(record.lon)?record.lon:null,
+  distanceNm:Number.isFinite(record.distanceNm)?record.distanceNm:null,
+  positionAgeSeconds:Number.isFinite(record.positionAgeSeconds)?record.positionAgeSeconds:null,
+  dataCategory:source==='flights'?'observed-aircraft-position':source,
+  operationVerified:false};
 };
 async function cameraRecords(question){
  const lower=question.toLowerCase(),india=/\b(india|indian|bengaluru|bangalore|delhi|mumbai|hyderabad|chennai|karnataka)\b/.test(lower);
@@ -112,18 +120,23 @@ async function cameraRecords(question){
   totalCatalog:all.length};
 }
 async function airportRecords(question){
+ const recognized=identifyAirport(question);
  const exact=question.match(/\b[A-Z]{3,4}\b/);
- const search=exact?.[0] || question.match(/(?:airport(?: in| near| at| called)?|from|to)\s+([A-Z][a-zA-Z ]{2,24})/i)?.[1]?.trim() || '';
- // Avoid dumping the full directory when asked an unspecific question.
+ const search=recognized?.icao||exact?.[0]||
+  question.match(/(?:airport(?: in| near| at| called)?|from|to)\s+([A-Z][a-zA-Z ]{2,24})/i)?.[1]?.trim()||'';
  const q=search&&search.toLowerCase()!=='airport'?search:'';
- const data=await searchAirports({q,limit:10});
- return {records:data.airports.map((a,i)=>({
+ if(!q)return {records:[],provider:'OurAirports',
+  note:'No airport code or name identified. ASURA did not substitute unrelated directory records.'};
+ const data=await searchAirports({q,limit:30});
+ const matching=recognized?data.airports.filter(a=>a.icao===recognized.icao||a.iata===recognized.iata):
+  data.airports.slice(0,10);
+ return {records:matching.slice(0,10).map((a,i)=>({
   id:'airports:'+(i+1),source:'airports',provider:'OurAirports worldwide public directory',
   title:a.name,description:[a.iata?'IATA '+a.iata:null,a.icao?'ICAO '+a.icao:null,
    a.city,a.country,a.scheduled?'Scheduled-service flag':'No scheduled-service flag'].filter(Boolean).join(' · '),
   observedAt:null,retrievedAt:data.retrievedAt,url:validUrl(a.home),lat:a.lat,lon:a.lon,
  })),provider:'OurAirports',totalCatalog:data.totalAirports,
- note:'Airport facility metadata is not an actual departures/arrivals board. Live flight status requires authorized flight operations data.'};
+ note:'Airport facility metadata is not a departures/arrivals board and cannot verify airport movements. Actual arrivals require licensed flight-operations data.'};
 }
 async function webRecords(question){
  if(!process.env.GOOGLE_SEARCH_API_KEY||!process.env.GOOGLE_SEARCH_ENGINE_ID)
@@ -148,20 +161,28 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
    if(source==='cameras')return {source,success:true,...await cameraRecords(question)};
    if(source==='airports')return {source,success:true,...await airportRecords(question)};
    if(source==='search')return {source,success:true,...await webRecords(question)};
-   const args=source==='flights'?{region}:
-    source==='weather'?await weatherLocation(question,region):{};
+   const airport=source==='flights'?identifyAirport(question):null;
+   const args=source==='flights'&&airport
+    ?{lat:airport.lat,lon:airport.lon,radiusNm:20}
+    :source==='flights'?{region}:
+     source==='weather'?await weatherLocation(question,region):{};
    const data=await getLiveSource(source,args);
    if(!data?.success)throw new Error(data?.error||'Provider did not return records');
    return {source,success:true,provider:data.provider,records:(data.records||[]).slice(0,source==='flights'?12:10)
     .map((r,i)=>recordFrom(r,source,data.provider,data.retrievedAt,i)),
     note:data.coverage||data.attribution||null,retrievedAt:data.retrievedAt,
+    providerTime:data.providerTime||null,observationType:data.observationType||null,
+    radiusNm:data.radiusNm||null,sourceAgeLimitSeconds:data.sourceAgeLimitSeconds||null,
     providerCount:data.count};
   }catch(e){return {source,success:false,error:trimmed(e.message,200)};}
  });
  const responses=await Promise.all(tasks);
  return {records:responses.flatMap(r=>r.success?r.records:[]).slice(0,38),
-  statuses:responses.map(({source,success,error,provider,note,providerCount,totalCatalog})=>
+  statuses:responses.map(({source,success,error,provider,note,providerCount,totalCatalog,
+    providerTime,observationType,radiusNm,sourceAgeLimitSeconds})=>
    ({source,success,error:error||null,provider:provider||null,note:note||null,
+    providerTime:providerTime||null,observationType:observationType||null,
+    radiusNm:radiusNm||null,sourceAgeLimitSeconds:sourceAgeLimitSeconds||null,
     providerCount:providerCount??totalCatalog??null})),
   checkedAt:new Date().toISOString()};
 }
