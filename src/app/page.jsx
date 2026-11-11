@@ -12,6 +12,7 @@ export default function DashboardPage() {
     <div className="flex flex-wrap gap-3 text-sm">
       <Link href="/flights" className="underline text-sky-700">Live Flight Explorer</Link>
       <Link href="/query" className="underline text-sky-700">Evidence AI chat</Link>
+      <Link href="/globe" className="underline text-sky-700">Cesium 3D Globe</Link>
       <Link href="/satellite" className="underline text-sky-700">Satellite imagery viewer</Link>
       <Link href="/cameras" className="underline text-sky-700">Authorized camera viewer</Link>
       <Link href="/sources" className="underline text-sky-700">Source registry</Link>
