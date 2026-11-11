@@ -1,4 +1,5 @@
 import {getLiveSource} from '@/lib/liveFeeds';
+import {searchWorldwideLocations} from '@/lib/weatherService';
 import {getCaltransCatalog,getTflCatalog} from '@/lib/publicCameras';
 import {searchAirports} from '@/lib/airports';
 import {identifyAirport} from '@/lib/aviationVerification';
@@ -22,27 +23,32 @@ const PLACES=[
 ];
 const REGION_WEATHER={bengaluru:PLACES[0],london:PLACES[1],
  singapore:PLACES[2],newyork:PLACES[3],dubai:PLACES[4]};
-async function weatherLocation(question,region){
- const q=question.toLowerCase();
- const known=PLACES.find(city=>city.terms.some(t=>new RegExp('\\b'+t+'\\b','i').test(q)));
- if(known)return known;
- const m=question.match(/\b(?:weather|temperature|forecast|rain|conditions?)\s+(?:today\s+|currently\s+|right\s+now\s+)?(?:in|at|near|for)\s+([a-zA-Z][a-zA-Z .-]{1,55})/i)
-  ||question.match(/\b(?:in|at|near|for)\s+([a-zA-Z][a-zA-Z .-]{1,55})\s+(?:weather|forecast|temperature)\b/i);
- if(!m)return REGION_WEATHER[region]||REGION_WEATHER.bengaluru;
- const location=m[1].split(/\b(?:today|tomorrow|right now|currently|this|please|and|with|on|nearby)\b/i)[0].replace(/[?.!,]+$/,'').trim();
- if(!location)return REGION_WEATHER[region]||REGION_WEATHER.bengaluru;
- if(!process.env.OPENWEATHERMAP_API_KEY)throw new Error('Location "'+location+'" requires geocoding; no geocoding API key is connected');
- const endpoint=new URL('https://api.openweathermap.org/geo/1.0/direct');
- endpoint.searchParams.set('q',location.slice(0,50));
- endpoint.searchParams.set('limit','1');
- endpoint.searchParams.set('appid',process.env.OPENWEATHERMAP_API_KEY);
- const r=await fetch(endpoint,{cache:'no-store',signal:AbortSignal.timeout(8500)});
- if(!r.ok)throw new Error('Location lookup provider HTTP '+r.status);
- const results=await r.json();
- const city=results?.[0];
- if(!Number.isFinite(city?.lat)||!Number.isFinite(city?.lon))throw new Error('Location "'+location+'" could not be verified by geocoding provider');
- return {label:[city.name,city.state,city.country].filter(Boolean).join(', ').slice(0,90),
-  lat:city.lat,lon:city.lon};
+async function weatherLocation(question){
+ const q=String(question||'').toLowerCase();
+ const known=PLACES.find(city=>city.terms.some(t=>q.includes(t.toLowerCase())));
+ if(known)return {...known,name:known.label,country:''};
+ // Do not substitute Bengaluru (or the aviation region selector) for a
+ // question that doesn't name a weather location.
+ const match=question.match(/\b(?:weather|temperature|forecast|rain|humidity|wind|conditions?)\s+(?:today\s+|currently\s+|right\s+now\s+)?(?:in|at|near|for|of)\s+([^\n?!]{2,90})/i)
+   ||question.match(/\b(?:in|at|near|for)\s+([^\n?!]{2,90}?)\s+(?:weather|forecast|temperature)\b/i);
+ if(!match)throw new Error(
+  'Specify the exact city, town, state or country and ideally country code. Weather is point-based; the ASURA default flight region is not your weather location.');
+ const place=match[1]
+  .split(/\b(?:today|tomorrow|tonight|right now|currently|this week|next week|please|tell me|and also|explain|with)\b/i)[0]
+  .trim().replace(/[.,;]+$/,'').trim().slice(0,85);
+ if(place.length<2)throw new Error('Weather location name is missing. Specify city, state and country.');
+ const data=await searchWorldwideLocations(place);
+ const locations=data.locations||[];
+ if(!locations.length)throw new Error('No matching weather location for "'+place+'"; try a city and country code or exact coordinates.');
+ if(locations.length>1){
+  const unique=new Set(locations.map(x=>x.country+'/'+(x.state||'')+'/'+x.name));
+  const explicit=/[,]/.test(place)||/\b(india|united states|usa|united kingdom|uk|france|japan|germany|canada|australia)\b/i.test(place);
+  if(unique.size>1&&!explicit)throw new Error(
+   'Ambiguous weather location "'+place+'". Specify state/country: '+locations.slice(0,3).map(x=>x.label).join(' | '));
+ }
+ const chosen=locations[0];
+ return {label:chosen.label,name:chosen.name,lat:chosen.lat,lon:chosen.lon,
+  country:chosen.country,state:chosen.state||''};
 }
 
 const validUrl=v=>{try{let u=new URL(v);return u.protocol==='https:'?u.href:null;}catch{return null;}};
@@ -77,6 +83,12 @@ const recordFrom=(record,source,provider,retrievedAt,index)=>{
   Number.isFinite(record.speedKnots)?'Ground speed: '+record.speedKnots+' knots':'',
   Number.isFinite(record.temperatureC)?'Temperature: '+record.temperatureC+' °C':'',
   Number.isFinite(record.windKmh)?'Wind: '+Math.round(record.windKmh)+' km/h':'',
+  source==='weather'&&record.weatherDataType?'Type: '+record.weatherDataType:'',
+  source==='weather'&&record.forecastFor?'Prediction valid at (UTC): '+record.forecastFor:'',
+  source==='weather'&&Number.isFinite(record.observationAgeMinutes)?
+    'Observation age: '+record.observationAgeMinutes+' min':'',
+  source==='weather'&&Number.isFinite(record.precipitationProbabilityPercent)?
+    'Forecast precipitation probability: '+record.precipitationProbabilityPercent+'%':'',
  ].filter(Boolean);
  return {id:source+':'+(index+1),source,provider:trimmed(provider,70),
   title:trimmed(record.title,200),description:trimmed([record.description,...fields].filter(Boolean).join(' · '),550),
@@ -86,6 +98,9 @@ const recordFrom=(record,source,provider,retrievedAt,index)=>{
   distanceNm:Number.isFinite(record.distanceNm)?record.distanceNm:null,
   positionAgeSeconds:Number.isFinite(record.positionAgeSeconds)?record.positionAgeSeconds:null,
   dataCategory:source==='flights'?'observed-aircraft-position':source,
+  weatherDataType:record.weatherDataType||null,
+  forecastFor:record.forecastFor||null,
+  observationAgeMinutes:record.observationAgeMinutes??null,
   operationVerified:false};
 };
 async function cameraRecords(question){
@@ -154,7 +169,7 @@ async function webRecords(question){
   retrievedAt:new Date().toISOString(),url:validUrl(x.link),
  })),provider:'Google Programmable Search',note:'Web search indexes may be delayed; publication dates are not necessarily available.'};
 }
-export async function assembleAgentContext(question,sourceNames,{region='bengaluru'}={}){
+export async function assembleAgentContext(question,sourceNames,{region='bengaluru',weatherPoint=null}={}){
  const sources=[...new Set(sourceNames.filter(s=>CONTEXT_SOURCES.includes(s)))].slice(0,5);
  const tasks=sources.map(async source=>{
   try{
@@ -165,13 +180,15 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
    const args=source==='flights'&&airport
     ?{lat:airport.lat,lon:airport.lon,radiusNm:20}
     :source==='flights'?{region}:
-     source==='weather'?await weatherLocation(question,region):{};
+     source==='weather'&&weatherPoint?weatherPoint:
+     source==='weather'?await weatherLocation(question):{};
    const data=await getLiveSource(source,args);
    if(!data?.success)throw new Error(data?.error||'Provider did not return records');
    return {source,success:true,provider:data.provider,records:(data.records||[]).slice(0,source==='flights'?12:10)
     .map((r,i)=>recordFrom(r,source,data.provider,data.retrievedAt,i)),
     note:data.coverage||data.attribution||null,retrievedAt:data.retrievedAt,
     providerTime:data.providerTime||null,observationType:data.observationType||null,
+    providerErrors:data.providerErrors||null,sourceStatuses:data.sourceStatuses||null,
     radiusNm:data.radiusNm||null,sourceAgeLimitSeconds:data.sourceAgeLimitSeconds||null,
     providerCount:data.count};
   }catch(e){return {source,success:false,error:trimmed(e.message,200)};}
@@ -179,9 +196,10 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
  const responses=await Promise.all(tasks);
  return {records:responses.flatMap(r=>r.success?r.records:[]).slice(0,38),
   statuses:responses.map(({source,success,error,provider,note,providerCount,totalCatalog,
-    providerTime,observationType,radiusNm,sourceAgeLimitSeconds})=>
+    providerTime,observationType,providerErrors,sourceStatuses,radiusNm,sourceAgeLimitSeconds})=>
    ({source,success,error:error||null,provider:provider||null,note:note||null,
     providerTime:providerTime||null,observationType:observationType||null,
+    providerErrors:providerErrors||null,sourceStatuses:sourceStatuses||null,
     radiusNm:radiusNm||null,sourceAgeLimitSeconds:sourceAgeLimitSeconds||null,
     providerCount:providerCount??totalCatalog??null})),
   checkedAt:new Date().toISOString()};
