@@ -163,7 +163,7 @@ function cameraFilter(camera,{continent='',country='',state='',district='',regio
     (!q||[camera.title,camera.locality,camera.route,camera.district,camera.region].some(v=>
       String(v||'').toLowerCase().includes(q.toLowerCase())));
 }
-export async function listCameras({continent='',country='',state='',district='',region='',q='',source='all',page=0}={}){
+export async function listCameras({continent='',country='',state='',district='',region='',q='',source='all',page=0,hlsOnly=false}={}){
   const sources=[],all=[];
   if(source==='all'||source==='caltrans'){
     if(!country||country==='US'||country==='United States'){
@@ -195,7 +195,7 @@ export async function listCameras({continent='',country='',state='',district='',
         sampleOnly:windy.connected});
     }catch(e){sources.push({name:'Windy Webcams',connected:false,error:String(e.message)});}
   }
-  const filtered=all.filter(c=>cameraFilter(c,{continent,country,state,district,region,q}));
+  const filtered=all.filter(c=>cameraFilter(c,{continent,country,state,district,region,q})&&(!hlsOnly||c.sourceType==='hls'));
   filtered.sort((a,b)=>a.district?.localeCompare(b.district||'')||a.title.localeCompare(b.title));
   const unique=key=>[...new Set(all.filter(c=>cameraFilter(c,{
     continent,country,state:key==='state'?'':state,
