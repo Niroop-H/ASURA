@@ -26,7 +26,7 @@ export async function GET(request, { params }) {
   const result = await getLiveSource(source, { region, lat, lon });
   const response = NextResponse.json(result, { status: result.success ? 200 : (result.status || 502) });
   response.headers.set('Cache-Control', source === 'flights'
-    ? 'public, s-maxage=35, stale-while-revalidate=15'
+    ? 'public, s-maxage=20, stale-while-revalidate=10'
     : 'public, s-maxage=60, stale-while-revalidate=30');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   return response;
