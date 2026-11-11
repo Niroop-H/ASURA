@@ -1,132 +1,25 @@
 'use client';
 
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Video,Maximize,Minimize,Play,Pause,RotateCcw,X,MonitorPlay,AlertTriangle,ExternalLink} from 'lucide-react';
+import {Maximize,Minimize,Play,Pause,RotateCcw,X,MonitorPlay,AlertTriangle,ExternalLink,Scan} from 'lucide-react';
+import ResilientHlsPlayer from './ResilientHlsPlayer';
 
 const MAX=6;
 const isHls=c=>c?.sourceType==='hls'&&typeof c.videoUrl==='string'&&
   /^https:\/\//.test(c.videoUrl)&&/\.m3u8(?:\?|$)/i.test(c.videoUrl);
-const when=v=>{if(!v)return 'Unknown';const d=new Date(v);return Number.isFinite(d.getTime())?d.toLocaleTimeString():'Unknown';};
-
-function loadHls(){
- if(typeof window==='undefined')return Promise.reject(new Error('HLS playback needs a browser'));
- if(window.Hls)return Promise.resolve(window.Hls);
- if(window.__asuraWallHls)return window.__asuraWallHls;
- window.__asuraWallHls=new Promise((resolve,reject)=>{
-  const script=document.createElement('script');
-  script.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';
-  script.crossOrigin='anonymous';
-  script.onload=()=>window.Hls?resolve(window.Hls):reject(new Error('HLS playback library unavailable'));
-  script.onerror=()=>reject(new Error('HLS playback library could not be downloaded'));
-  document.head.appendChild(script);
- }).catch(e=>{window.__asuraWallHls=null;throw e});
- return window.__asuraWallHls;
-}
-
-function CameraVideo({camera,enabled,onStatus}){
- const ref=useRef(null),engine=useRef(null);
- const [status,setStatus]=useState({kind:'connecting',label:'Connecting…'});
- useEffect(()=>{
-  const video=ref.current;
-  let alive=true;
-  let player=null;
-  let verifiedLive=null;
-  const report=(kind,label)=>{
-   if(!alive)return;
-   setStatus({kind,label});
-   onStatus?.(kind,label);
-  };
-  if(!enabled){report('paused','Paused');return;}
-  if(!video||!isHls(camera)){report('error','No authorized live HLS URL');return;}
-  const onPlaying=()=>{
-   report(verifiedLive===false?'warning':verifiedLive===true?'playing':'unverified',
-     verifiedLive===true?'Live HLS playing':verifiedLive===false?'Recorded HLS — not a live stream':'Video playing · live timestamp unverified');
-  };
-  const onWaiting=()=>report('buffering','Buffering video…');
-  const onError=()=>report('error','Playback failed (offline, CORS or codec error)');
-  video.addEventListener('playing',onPlaying);
-  video.addEventListener('waiting',onWaiting);
-  video.addEventListener('error',onError);
-  video.muted=true;
-  video.autoplay=true;
-  video.playsInline=true;
-  const start=async()=>{
-   if(video.canPlayType('application/vnd.apple.mpegurl')){
-    video.src=camera.videoUrl;
-    report('connecting','Native HLS source loaded · verifying playback');
-    try{await video.play();}catch{report('paused','Press play to start native HLS');}
-    return;
-   }
-   const Hls=await loadHls();
-   if(!alive)return;
-   if(!Hls.isSupported()){report('error','HLS unsupported by this browser');return;}
-   player=new Hls({
-    enableWorker:true,
-    maxBufferLength:10,
-    backBufferLength:0,
-    maxMaxBufferLength:18,
-    capLevelToPlayerSize:true,
-    startLevel:-1,
-    lowLatencyMode:false,
-    autoStartLoad:true,
-  });
-   engine.current=player;
-   player.on(Hls.Events.LEVEL_LOADED,(_event,data)=>{
-    verifiedLive=Boolean(data.details?.live);
-    if(verifiedLive===false)report('warning','Recorded playlist, not continuous live video');
-   });
-   player.on(Hls.Events.MANIFEST_PARSED,async()=>{
-    if(!alive)return;
-    report('buffering','HLS manifest loaded · buffering');
-    try{await video.play();}catch{report('paused','Autoplay blocked — press play');}
-   });
-   player.on(Hls.Events.ERROR,(_event,data)=>{
-    if(!alive)return;
-    if(!data?.fatal)return;
-    const detail=String(data.details||'unknown playback error');
-    report('error','Stream unavailable: '+detail);
-    // No attempts to bypass authorization or proxy streams.
-   });
-   player.loadSource(camera.videoUrl);
-   player.attachMedia(video);
-  };
-  start().catch(e=>report('error',e.message||'HLS connection failed'));
-  return()=>{
-   alive=false;
-   video.removeEventListener('playing',onPlaying);
-   video.removeEventListener('waiting',onWaiting);
-   video.removeEventListener('error',onError);
-   try{player?.destroy()}catch{}
-   engine.current=null;
-   try{video.pause();video.removeAttribute('src');video.load()}catch{}
-  };
- },[camera?.id,camera?.videoUrl,enabled]);
- return <div className="relative w-full h-full flex flex-col min-h-0">
-  <video ref={ref} muted autoPlay controls playsInline
-   className="w-full h-full object-contain bg-black flex-1 min-h-0" aria-label={'Live HLS camera stream '+camera.title}/>
-  <div className="absolute top-2 left-2 pointer-events-none">
-   <span className={'inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold border backdrop-blur-sm '+
-    (status.kind==='playing'?'bg-emerald-900/90 text-emerald-100 border-emerald-400':
-     status.kind==='error'?'bg-red-950/90 text-red-100 border-red-500':
-     status.kind==='buffering'||status.kind==='connecting'?'bg-slate-900/90 text-slate-100 border-slate-600':
-     'bg-amber-950/90 text-amber-100 border-amber-600')}>
-    {status.label}
-   </span>
-  </div>
- </div>;
-}
-
-function WallTile({camera,index,active,selected,onSelect,onRemove,allPaused}){
+function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,onTerminal}){
  const root=useRef(null);
  const [fullscreen,setFullscreen]=useState(false);
  const [paused,setPaused]=useState(false);
  const [status,setStatus]=useState(null);
+ const [fit,setFit]=useState('contain');
+ const [revision,setRevision]=useState(0);
  useEffect(()=>{
   const handler=()=>setFullscreen(document.fullscreenElement===root.current);
   document.addEventListener('fullscreenchange',handler);
   return()=>document.removeEventListener('fullscreenchange',handler);
  },[]);
- useEffect(()=>{setPaused(false);setStatus(null)},[camera?.id]);
+ useEffect(()=>{setPaused(false);setStatus(null);setFit('contain');setRevision(0)},[camera?.id]);
  const goFullscreen=async()=>{
   try{
    if(document.fullscreenElement===root.current)await document.exitFullscreen();
@@ -142,6 +35,14 @@ function WallTile({camera,index,active,selected,onSelect,onRemove,allPaused}){
     <span className="text-xs truncate" title={camera?.title||'Empty camera slot'}>{camera?.title||'Choose a public camera'}</span>
    </div>
    <div className="flex gap-1 shrink-0">
+    {camera&&live&&<button type="button" onClick={()=>setFit(v=>v==='contain'?'cover':'contain')}
+      title={fit==='contain'?'Fill tile (crops picture)':'Show entire picture'}
+      className="p-1.5 hover:bg-slate-700 rounded" aria-label={'Toggle picture fit on camera '+(index+1)}>
+      <Scan size={14}/>
+    </button>}
+    {camera&&live&&<button type="button" onClick={()=>setRevision(n=>n+1)}
+      title="Reconnect stream" className="p-1.5 hover:bg-slate-700 rounded"
+      aria-label={'Reconnect camera '+(index+1)}><RotateCcw size={14}/></button>}
     {camera&&live&&<button type="button" onClick={()=>setPaused(v=>!v)}
       title={paused?'Resume stream':'Pause stream'}
       className="p-1.5 hover:bg-slate-700 rounded" aria-label={paused?'Resume camera '+(index+1):'Pause camera '+(index+1)}>
@@ -156,7 +57,10 @@ function WallTile({camera,index,active,selected,onSelect,onRemove,allPaused}){
    </div>
   </div>
   <div className="aspect-video relative flex-1 min-h-0 bg-black">
-   {live?<CameraVideo camera={camera} enabled={!paused&&!allPaused} onStatus={(_kind,label)=>setStatus(label)}/>:
+   {live?<ResilientHlsPlayer key={camera.id+':'+revision}
+      camera={camera} enabled={!paused&&!allPaused} fit={fit}
+      onHealth={(cameraId,health)=>{setStatus(health.label);onHealth?.(index,cameraId,health)}}
+      onTerminal={record=>onTerminal?.(index,record)}/>:
     <button type="button" onClick={()=>onSelect(index)}
       className="w-full h-full flex flex-col gap-2 items-center justify-center text-slate-400 hover:bg-slate-900 text-xs p-4">
       {camera?<AlertTriangle size={23}/>:<MonitorPlay size={23}/>}
@@ -175,10 +79,27 @@ function WallTile({camera,index,active,selected,onSelect,onRemove,allPaused}){
  </article>;
 }
 
-export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onClear,onAutofill,autoLoading,autoError}){
+export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onClear,onAutofill,autoLoading,autoError,onFailedStream}){
  const root=useRef(null);
  const [wallFullscreen,setWallFullscreen]=useState(false);
  const [pausedAll,setPausedAll]=useState(false);
+ const [health,setHealth]=useState({});
+ const handleHealth=(slot,cameraId,value)=>{
+  setHealth(prev=>{
+   const item=prev[slot];
+   if(item?.id===cameraId&&item?.kind===value.kind&&item?.age===value.age&&item?.label===value.label)return prev;
+   return {...prev,[slot]:{id:cameraId,...value}};
+  });
+ };
+ const counts={playing:0,connecting:0,offline:0};
+ for(let i=0;i<MAX;i++){
+  const camera=slots[i];
+  if(!camera)continue;
+  const state=health[i];
+  if(!state||state.id!==camera.id||['buffering','recovering','connecting'].includes(state.kind))counts.connecting++;
+  else if(state.kind==='playing')counts.playing++;
+  else if(state.kind==='error')counts.offline++;
+ }
  useEffect(()=>{
   const handler=()=>setWallFullscreen(document.fullscreenElement===root.current);
   document.addEventListener('fullscreenchange',handler);
@@ -195,7 +116,7 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
   <div className="flex flex-wrap items-center justify-between gap-3">
    <div>
     <h2 className="font-semibold text-lg flex items-center gap-2"><MonitorPlay size={20}/> Six-Camera Live Wall</h2>
-    <p className="text-xs text-slate-500">Six numbered slots · {liveCount} HLS stream URL{liveCount===1?'':'s'} assigned · muted playback · independent fullscreen</p>
+    <p className="text-xs text-slate-500">Six numbered slots · {liveCount} HLS URLs assigned · {counts.playing} decoding frames · {counts.connecting} connecting · {counts.offline} unavailable. Muted playback.</p>
    </div>
    <div className="flex flex-wrap gap-2">
     <button type="button" onClick={onAutofill} disabled={autoLoading}
@@ -214,13 +135,18 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
    </div>
   </div>
   {autoError&&<p className="text-xs p-3 rounded bg-amber-50 text-amber-900" role="alert">{autoError}</p>}
-  <div ref={root} className="camera-wall-grid grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 bg-slate-950 p-2 rounded-lg">
+  <div ref={root} className="camera-wall-grid relative grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 bg-slate-950 p-2 rounded-lg">
+
+    {wallFullscreen&&<button type="button" onClick={enterWall}
+      className="absolute top-3 right-3 z-20 bg-slate-800 border border-slate-500 rounded p-2 text-white text-xs"
+      aria-label="Exit fullscreen camera wall">Exit fullscreen</button>}
     {Array.from({length:MAX},(_,i)=><WallTile key={i+'_'+(slots[i]?.id||'empty')} index={i}
       camera={slots[i]} selected={selectedSlot===i} allPaused={pausedAll}
-      onSelect={onSelectSlot} onRemove={onRemove}/>)}
+      onSelect={onSelectSlot} onRemove={onRemove}
+      onHealth={handleHealth} onTerminal={onFailedStream}/>)}
   </div>
   <p className="text-xs text-slate-500">
-   Six live streams can use significant internet bandwidth. Streams must be publicly authorized HLS sources and allow playback in your browser; playlist availability does not guarantee uninterrupted video. Camera feeds are not synchronized, recorded or tracked by ASURA.
+   Six streams can consume substantial bandwidth and CPU. Green indicates video frames advancing from an HLS live playlist—not a measured camera capture delay. Transient errors are retried; unavailable auto-selected streams are replaced with verified spare playlists when possible. No private cameras, recordings, or person tracking.
   </p>
  </section>;
 }
