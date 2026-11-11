@@ -154,7 +154,8 @@ export async function getLiveSource(source, options = {}) {
             throw new Error('ADS-B snapshot time is missing, implausible or too old for near-real-time reporting');
           const eligible = data.ac.filter(a => {
             const age = Number(a.seen_pos);
-            if(!Number.isFinite(a.lat)||!Number.isFinite(a.lon)||
+            if(a.seen_pos===null||a.seen_pos===undefined||
+              !Number.isFinite(a.lat)||!Number.isFinite(a.lon)||
               Math.abs(a.lat)>90||Math.abs(a.lon)>180||
               !Number.isFinite(age)||age<0||age>60)return false;
             const observed=now-age;
