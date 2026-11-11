@@ -7,7 +7,7 @@ const SOURCE_LABELS = {
   news: 'NewsAPI',
   flightaware: 'FlightAware AeroAPI',
 };
-export const LIVE_SOURCES = [...Object.keys(SOURCE_LABELS), 'flightaware'];
+export const LIVE_SOURCES = Object.keys(SOURCE_LABELS);
 const when = value => value == null ? null : new Date(value).toISOString();
 const normalizeUrl = value => {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null; }
@@ -75,8 +75,10 @@ export async function getLiveSource(source, options = {}) {
         bengaluru: [12.9716, 77.5946], london: [51.4700, -0.4543],
         singapore: [1.3644, 103.9915], newyork: [40.6413, -73.7781], dubai: [25.2532, 55.3657]
       };
-      const [lat, lon] = areas[options.region] || areas.bengaluru;
-      const query = '-latlong "' + [lat - 1.5, lon - 1.5, lat + 1.5, lon + 1.5].map(x => x.toFixed(4)).join(' ') + '"';
+      const [fallbackLat, fallbackLon] = areas[options.region] || areas.bengaluru;
+      const lat = Number.isFinite(options.lat) ? options.lat : fallbackLat;
+      const lon = Number.isFinite(options.lon) ? options.lon : fallbackLon;
+      const query = '-latlong "' + [Math.max(-90, lat - 2.2), Math.max(-180, lon - 2.2), Math.min(90, lat + 2.2), Math.min(180, lon + 2.2)].map(x => x.toFixed(4)).join(' ') + '"';
       const u = new URL('https://aeroapi.flightaware.com/aeroapi/flights/search');
       u.searchParams.set('query', query);
       u.searchParams.set('max_pages', '1'); // Keep usage bounded (AeroAPI is metered).
@@ -119,10 +121,18 @@ export async function getLiveSource(source, options = {}) {
         newyork: { lat: 40.6413, lon: -73.7781, name: 'New York' },
         dubai: { lat: 25.2532, lon: 55.3657, name: 'Dubai' },
       };
-      const center = regions[options.region] || regions.bengaluru;
+      const center = { ...(regions[options.region] || regions.bengaluru) };
+      if (Number.isFinite(options.lat) && Number.isFinite(options.lon)) {
+        center.lat = Math.round(options.lat * 10) / 10;
+        center.lon = Math.round(options.lon * 10) / 10;
+        center.name = 'Custom map center';
+      }
+      const radius = 250; // Public adsb.lol and adsb.fi geographic API maximum (nautical miles).
       const providers = [
-        { name: 'adsb.lol', url: 'https://api.adsb.lol/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/180' },
-        { name: 'adsb.fi', url: 'https://opendata.adsb.fi/api/v3/lat/' + center.lat + '/lon/' + center.lon + '/dist/180' },
+        { name: 'adsb.lol', url: 'https://api.adsb.lol/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/' + radius },
+        // adsb.fi explicitly restricts public service to non-commercial use.
+        ...(process.env.ADSB_FI_NONCOMMERCIAL_AUTHORIZED === 'true'
+          ? [{ name: 'adsb.fi', url: 'https://opendata.adsb.fi/api/v3/lat/' + center.lat + '/lon/' + center.lon + '/dist/' + radius }] : []),
       ];
       const failures = [];
       for (const p of providers) {
@@ -130,7 +140,8 @@ export async function getLiveSource(source, options = {}) {
           const data = await retrieve(p.url, 60);
           if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft payload');
           const now = Number(data.now) > 1e12 ? Number(data.now) / 1000 : Number(data.now) || Date.now() / 1000;
-          const records = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number(a.seen_pos ?? 0) <= 120).slice(0, 200).map(a => ({
+          const eligible = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number(a.seen_pos ?? 0) <= 120);
+          const records = eligible.slice(0, 1500).map(a => ({
             id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
             lat: a.lat, lon: a.lon, source: p.name, observedAt: when((now - Number(a.seen_pos || 0)) * 1000),
             description: [a.t || 'Aircraft', a.r || null].filter(Boolean).join(' · '),
@@ -141,12 +152,15 @@ export async function getLiveSource(source, options = {}) {
             squawk: a.squawk || null, category: a.category || null,
             speedKnots: Number.isFinite(a.gs) ? a.gs : null,
             heading: Number.isFinite(a.track) ? a.track : null,
-            ageSeconds: Math.round(Number(a.seen_pos || 0)), url: null,
+            ageSeconds: Math.round(Number(a.seen_pos || 0)), onGround: a.alt_baro === 'ground', url: null,
           }));
           return { success: true, source, provider: p.name, retrievedAt: new Date().toISOString(),
             refreshSeconds: 60, count: records.length, records, region: center.name,
-            coverage: 'Public receiver coverage, not guaranteed complete',
-            attribution: 'Volunteer receiver data; provider terms apply' };
+            center: { lat: center.lat, lon: center.lon }, radiusNm: radius,
+            positionedAircraft: eligible.length, providerReportedAircraft: Number(data.total) || data.ac.length,
+            truncated: eligible.length > records.length,
+            coverage: '250 NM from selected map center; not a complete worldwide aircraft inventory',
+            attribution: p.name === 'adsb.lol' ? 'Aircraft observations © adsb.lol contributors; ODbL 1.0' : 'Aircraft observations © adsb.fi contributors; non-commercial license' };
         } catch (error) { failures.push(p.name + ': ' + error.message); }
       }
       throw new Error(failures.join('; '));
