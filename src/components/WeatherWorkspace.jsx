@@ -166,7 +166,8 @@ export default function WeatherWorkspace(){
  const choose=place=>{
   if(!Number.isFinite(place?.lat)||!Number.isFinite(place?.lon))return;
   setSelected({...place,label:place.label||place.name||'Selected point'});
-  setError('');setLocations([]);
+  // Never show the previous place's weather under the newly selected place.
+  setReport(null);setLoading(true);setError('');setLocations([]);
   setCoords({lat:String(place.lat),lon:String(place.lon)});
  };
  useEffect(()=>{
@@ -329,7 +330,7 @@ export default function WeatherWorkspace(){
       <WeatherMetric icon={Droplets} label="Relative humidity" value={number(now.humidityPercent,'%',0)}/>
       <WeatherMetric icon={Wind} label="Wind speed" value={number(now.windKmh,' km/h',1)}
        detail={Number.isFinite(now.windDegrees)?'Bearing '+now.windDegrees+'°':''}/>
-      <WeatherMetric icon={Compass} label="Sea-level pressure (provider)" value={number(now.pressureHpa,' hPa',0)}/>
+      <WeatherMetric icon={Compass} label="Atmospheric pressure (provider)" value={number(now.pressureHpa,' hPa',0)}/>
       <WeatherMetric icon={Eye} label="Visibility" value={Number.isFinite(now.visibilityMeters)?number(now.visibilityMeters/1000,' km',1):'Not available'}/>
       <WeatherMetric icon={Cloud} label="Cloud cover" value={number(now.cloudCoverPercent,'%',0)}/>
       <WeatherMetric icon={Wind} label="Wind gusts" value={number(now.gustKmh,' km/h',1)}/>
@@ -340,7 +341,7 @@ export default function WeatherWorkspace(){
     {hourly.length>0&&<>
      <Chart items={hourly}/>
      <div className="space-y-2">
-      <h3 className="text-base font-semibold">Five-day forecast overview</h3>
+      <h3 className="text-base font-semibold">Five-day forecast overview (may cover six local calendar dates)</h3>
       <p className="text-xs text-slate-500">Min/max are sampled from the published 3-hour predictions—not official daily extremes. Partial days have fewer samples.</p>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
        {daily.map(day=><div key={day.date} className="rounded-lg bg-white border p-3 space-y-1">
