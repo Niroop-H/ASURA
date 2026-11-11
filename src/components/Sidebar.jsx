@@ -16,14 +16,20 @@ import {
   Menu,
   X,
   Radio,
+  Satellite,
+  Video,
+  Search,
   ExternalLink
 } from 'lucide-react';
 
 const NAV_LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard },
-  { href: '/query', label: 'Intelligence Query', icon: MessageSquare },
+  { href: '/query', label: 'Evidence AI Chat', icon: MessageSquare },
+  { href: '/search', label: 'Live Web Search', icon: Search },
   { href: '/tracking', label: 'Observations', icon: Crosshair },
   { href: '/map', label: 'Geospatial View', icon: Map },
+  { href: '/satellite', label: 'Satellite Imagery', icon: Satellite },
+  { href: '/cameras', label: 'Public Camera Feeds', icon: Video },
   { href: '/sources', label: 'Source Registry', icon: Database },
   { href: '/keys', label: 'API Key Holders', icon: Key },
   { href: '/compliance', label: 'Assessment Status', icon: FileCheck },
