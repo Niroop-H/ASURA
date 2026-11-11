@@ -404,6 +404,43 @@ export default function PublicCameraExplorer(){
   }catch(e){setAutoError(e.message||'Unable to load live wall feeds')}
   finally{setAutoLoading(false);}
  };
+ // On reload, previously auto-selected Caltrans feeds may have gone offline.
+ // Revalidate them against segment-tested sources instead of restoring a stale
+ // six-camera wall without checking that video bytes are still accessible.
+ useEffect(()=>{
+  if(!wallHydrated||!wallSlots.some(c=>c?.autoAssigned)||sparePoolRef.current.length)return;
+  let active=true;
+  const controller=new AbortController();
+  fetch('/api/cameras/live?limit=12',{cache:'no-store',signal:controller.signal})
+   .then(r=>r.json())
+   .then(data=>{
+    if(!active||sparePoolRef.current.length||!data.success)return;
+    const valid=(data.cameras||[]).filter(c=>c.sourceType==='hls'&&c.segmentFetchVerified===true)
+     .map(c=>({...c,autoAssigned:true}));
+    sparePoolRef.current=valid;
+    failedStreamsRef.current=new Set();
+    const byId=new Map(valid.map(c=>[c.id,c]));
+    let replaced=0,missing=0;
+    setWallSlots(prev=>{
+     const used=new Set();
+     const next=prev.map(camera=>{
+      if(!camera?.autoAssigned)return camera;
+      const same=byId.get(camera.id);
+      if(same&&!used.has(same.id)){used.add(same.id);return same;}
+      const spare=valid.find(c=>!used.has(c.id));
+      if(spare){used.add(spare.id);replaced++;return spare;}
+      missing++;return null;
+     });
+     return next;
+    });
+    if(replaced||missing)setAutoError(
+     'Restored camera sources were checked again: '+replaced+' unavailable feed(s) replaced, '+
+     missing+' slot(s) left empty. Use Start all once if your browser requires a playback gesture.');
+   })
+   .catch(e=>{if(active&&e.name!=='AbortError')
+    setAutoError('Saved cameras could not be revalidated: '+String(e.message||'network error').slice(0,140));});
+  return()=>{active=false;controller.abort();};
+ },[wallHydrated]);
  return <div className="space-y-6">
   <section className="defense-card p-5 space-y-4">
    <div className="flex flex-wrap justify-between gap-3">
