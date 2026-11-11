@@ -1,7 +1,7 @@
 'use client';
 
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {Maximize,Minimize,Play,Pause,RotateCcw,X,MonitorPlay,AlertTriangle,ExternalLink,Scan,Radio} from 'lucide-react';
+import {Maximize,Minimize,Play,Pause,RotateCcw,X,MonitorPlay,AlertTriangle,ExternalLink,Scan,Radio,Sun,ExternalLink as NewWindow} from 'lucide-react';
 import ResilientHlsPlayer from './ResilientHlsPlayer';
 
 const MAX=6;
@@ -9,6 +9,9 @@ const isHls=c=>c?.sourceType==='hls'&&typeof c.videoUrl==='string'&&
   /^https:\/\//.test(c.videoUrl)&&/\.m3u8(?:\?|$)/i.test(c.videoUrl);
 function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,onTerminal}){
  const root=useRef(null);
+ const retryTimerRef=useRef(null);
+ const retryCountRef=useRef(0);
+ const healthySinceRef=useRef(null);
  const [fullscreen,setFullscreen]=useState(false);
  const [paused,setPaused]=useState(false);
  const [status,setStatus]=useState(null);
@@ -20,12 +23,41 @@ function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,on
   document.addEventListener('fullscreenchange',handler);
   return()=>document.removeEventListener('fullscreenchange',handler);
  },[]);
- useEffect(()=>{setPaused(false);setStatus(null);setFit('contain');setRevision(0);setGoLiveTick(0)},[camera?.id]);
+ useEffect(()=>{
+  retryCountRef.current=0;healthySinceRef.current=null;
+  if(retryTimerRef.current)clearTimeout(retryTimerRef.current);
+  retryTimerRef.current=null;
+  setPaused(false);setStatus(null);setFit('contain');setRevision(0);setGoLiveTick(0);
+  return()=>{if(retryTimerRef.current)clearTimeout(retryTimerRef.current);retryTimerRef.current=null;};
+ },[camera?.id]);
  const goFullscreen=async()=>{
   try{
    if(document.fullscreenElement===root.current)await document.exitFullscreen();
    else if(root.current?.requestFullscreen)await root.current.requestFullscreen();
   }catch(e){setStatus('Fullscreen unavailable: '+e.message);}
+ };
+ const handleHealth=(cameraId,health)=>{
+  setStatus(health.label);
+  if(health.kind==='playing'){
+   if(!healthySinceRef.current)healthySinceRef.current=Date.now();
+   if(Date.now()-healthySinceRef.current>18000)retryCountRef.current=0;
+  }else if(health.kind==='error'||health.kind==='recovering'){
+   healthySinceRef.current=null;
+  }
+  onHealth?.(index,cameraId,health);
+ };
+ const handleTerminal=(record)=>{
+  onTerminal?.(index,record); // Auto-assigned feeds may be replaced by a verified spare.
+  if(retryTimerRef.current||!record)return;
+  retryCountRef.current+=1;
+  healthySinceRef.current=null;
+  // If no spare replaces this camera, restart it for as long as this wall is open.
+  const delay=Math.min(60000,3000*Math.pow(2,Math.min(5,retryCountRef.current-1)));
+  setStatus('Stream failed — retrying in '+Math.round(delay/1000)+'s');
+  retryTimerRef.current=setTimeout(()=>{
+   retryTimerRef.current=null;
+   if(!paused&&!allPaused)setRevision(x=>x+1);
+  },delay);
  };
  const live=isHls(camera);
  return <article ref={root} className={'camera-wall-tile flex flex-col min-w-0 min-h-0 overflow-hidden rounded-md border '+
@@ -65,8 +97,8 @@ function WallTile({camera,index,selected,onSelect,onRemove,allPaused,onHealth,on
   <div className="aspect-video relative flex-1 min-h-0 bg-black">
    {live?<ResilientHlsPlayer key={camera.id+':'+revision}
       camera={camera} enabled={!paused&&!allPaused} fit={fit} jumpToLiveTick={goLiveTick}
-      onHealth={(cameraId,health)=>{setStatus(health.label);onHealth?.(index,cameraId,health)}}
-      onTerminal={record=>onTerminal?.(index,record)}/>:
+      onHealth={handleHealth}
+      onTerminal={handleTerminal}/>:
     <button type="button" onClick={()=>onSelect(index)}
       className="w-full h-full flex flex-col gap-2 items-center justify-center text-slate-400 hover:bg-slate-900 text-xs p-4">
       {camera?<AlertTriangle size={23}/>:<MonitorPlay size={23}/>}
@@ -89,6 +121,37 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
  const root=useRef(null);
  const [wallFullscreen,setWallFullscreen]=useState(false);
  const [pausedAll,setPausedAll]=useState(false);
+ const wakeRef=useRef(null);
+ const [wakeRequested,setWakeRequested]=useState(false);
+ const [wakeActive,setWakeActive]=useState(false);
+ const [wakeError,setWakeError]=useState('');
+ const requestWake=async()=>{
+  if(!('wakeLock' in navigator)){
+   setWakeError('Screen Wake Lock is unavailable in this browser; use system power settings.');
+   return;
+  }
+  try{
+   const lock=await navigator.wakeLock.request('screen');
+   wakeRef.current=lock;setWakeActive(true);setWakeError('');
+   lock.addEventListener('release',()=>{if(wakeRef.current===lock){wakeRef.current=null;setWakeActive(false);}});
+  }catch(e){setWakeActive(false);setWakeError('Screen wake request denied: '+(e?.message||'browser permission'));}
+ };
+ const toggleWake=async()=>{
+  if(wakeRequested){
+   setWakeRequested(false);
+   const active=wakeRef.current;wakeRef.current=null;
+   try{await active?.release()}catch{}
+   setWakeActive(false);setWakeError('');
+  }else{
+   setWakeRequested(true);await requestWake();
+  }
+ };
+ useEffect(()=>{
+  const handler=()=>{if(!document.hidden&&wakeRequested&&!wakeRef.current)requestWake()};
+  document.addEventListener('visibilitychange',handler);
+  return()=>document.removeEventListener('visibilitychange',handler);
+ },[wakeRequested]);
+ useEffect(()=>()=>{try{wakeRef.current?.release()}catch{}},[]);
  const [health,setHealth]=useState({});
  const handleHealth=(slot,cameraId,value)=>{
   setHealth(prev=>{
@@ -133,6 +196,14 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
      className="rounded border px-3 py-2 text-xs inline-flex items-center gap-1">
      {pausedAll?<Play size={14}/>:<Pause size={14}/>} {pausedAll?'Resume all':'Pause all'}
     </button>
+    <button type="button" onClick={toggleWake}
+     className={'rounded border px-3 py-2 text-xs inline-flex items-center gap-1 '+(wakeActive?'bg-emerald-50 border-emerald-300 text-emerald-900':'')}>
+     <Sun size={14}/> {wakeActive?'Screen awake':'Keep screen awake'}
+    </button>
+    <a href="/cameras?wall=1" target="_blank" rel="noopener noreferrer"
+     className="rounded border px-3 py-2 text-xs inline-flex items-center gap-1" title="Keep a separate browser tab open for monitoring while using other ASURA workspaces">
+     <NewWindow size={14}/> Monitor tab
+    </a>
     <button type="button" onClick={enterWall}
      className="rounded border px-3 py-2 text-xs inline-flex items-center gap-1">
      {wallFullscreen?<Minimize size={14}/>:<Maximize size={14}/>} {wallFullscreen?'Exit wall fullscreen':'Fullscreen wall'}
@@ -141,6 +212,7 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
    </div>
   </div>
   {autoError&&<p className="text-xs p-3 rounded bg-amber-50 text-amber-900" role="alert">{autoError}</p>}
+  {wakeError&&<p role="status" className="text-xs p-3 rounded bg-amber-50 text-amber-900">{wakeError}</p>}
   <div ref={root} className="camera-wall-grid relative grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 bg-slate-950 p-2 rounded-lg">
 
     {wallFullscreen&&<button type="button" onClick={enterWall}
@@ -152,7 +224,7 @@ export default function CameraWall({slots,onSelectSlot,selectedSlot,onRemove,onC
       onHealth={handleHealth} onTerminal={onFailedStream}/>)}
   </div>
   <p className="text-xs text-slate-500">
-   Six streams can consume substantial bandwidth and CPU. Green indicates video frames advancing from an HLS live playlist—not a measured camera capture delay. Transient errors are retried; unavailable auto-selected streams are replaced with verified spare playlists when possible. No private cameras, recordings, or person tracking.
+   While this monitoring page remains open, stalled public streams are retried with backoff and unavailable auto-selected feeds can be switched to spares. A separate monitor tab and optional screen wake lock help with longer sessions. Browser throttling, device sleep, connectivity and operator outages still prevent guaranteed 24/7 playback. Green means video progress, not verified capture latency. No private-camera access or person tracking.
   </p>
  </section>;
 }
