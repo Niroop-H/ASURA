@@ -64,8 +64,10 @@ function Datum({ label, value }) {
   </div>;
 }
 export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
-  const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), markersRef = useRef(new Map());
+  const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), coverageRef = useRef(null), markersRef = useRef(new Map());
   const [region, setRegion] = useState(initialRegion);
+  const [queryCenter, setQueryCenter] = useState(null);
+  const [mapViewCenter, setMapViewCenter] = useState(null);
   const [basemap, setBasemap] = useState('street');
   const [providerChoice, setProviderChoice] = useState('flights');
   const [layers, setLayers] = useState(['flights', 'earthquakes', 'events', 'weather']);
@@ -104,6 +106,16 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       };
       tileRef.current.street.addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
+      coverageRef.current = L.circle(REGIONS[initialRegion]?.coords || REGIONS.bengaluru.coords, {
+        radius: 250 * 1852, color: '#0284c7', weight: 1, dashArray: '5,8',
+        opacity: 0.65, fillColor: '#0284c7', fillOpacity: 0.035, interactive: false,
+      }).addTo(map);
+      map.on('moveend', () => {
+        if (!mounted) return;
+        const p = map.getCenter();
+        const lon = (((p.lng + 180) % 360) + 360) % 360 - 180;
+        setMapViewCenter({ lat: p.lat, lon });
+      });
       setMapReady(true);
       requestAnimationFrame(() => map.invalidateSize());
     }).catch(error => { if (mounted) setMapError(error.message); });
@@ -112,14 +124,21 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       mapRef.current?.remove();
       mapRef.current = null;
       layerRef.current = null;
+      coverageRef.current = null;
       markersRef.current = new Map();
     };
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
-    mapRef.current.flyTo(REGIONS[region]?.coords || REGIONS.bengaluru.coords, 8, { duration: .4 });
+    if (!mapReady || !mapRef.current || !REGIONS[region]) return;
+    mapRef.current.flyTo(REGIONS[region].coords, 8, { duration: .4 });
   }, [region, mapReady]);
+  useEffect(() => {
+    if (!mapReady || !coverageRef.current) return;
+    coverageRef.current.setLatLng(queryCenter
+      ? [queryCenter.lat, queryCenter.lon]
+      : (REGIONS[region]?.coords || REGIONS.bengaluru.coords));
+  }, [queryCenter, region, mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -134,7 +153,13 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
     const poll = async () => {
       await Promise.all(feedNames.map(async id => {
         try {
-          const url = '/api/live/' + id + ((id === 'flights' || id === 'flightaware') ? '?region=' + region : '');
+          const flightParams = new URLSearchParams({ region: REGIONS[region] ? region : 'bengaluru' });
+          if (queryCenter && (id === 'flights' || id === 'flightaware')) {
+            flightParams.set('lat', queryCenter.lat.toFixed(3));
+            flightParams.set('lon', queryCenter.lon.toFixed(3));
+          }
+          const url = '/api/live/' + id +
+            ((id === 'flights' || id === 'flightaware') ? '?' + flightParams.toString() : '');
           const response = await fetch(url, { cache: 'no-store' });
           const data = await response.json();
           if (active) setResponses(prev => ({ ...prev, [id]: data }));
@@ -150,7 +175,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
     // Polling, not websocket streaming; data timestamps show genuine positions.
     const interval = setInterval(poll, providerChoice === 'flightaware' ? 120000 : 60000);
     return () => { active = false; clearInterval(interval); };
-  }, [providerChoice, region, refresh]);
+  }, [providerChoice, region, queryCenter, refresh]);
 
   useEffect(() => {
     if (!mapReady || !window.L || !layerRef.current) return;
@@ -206,6 +231,17 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       marker.openPopup();
     }
   };
+  const loadCurrentArea = () => {
+    if (!mapRef.current) return;
+    const p = mapRef.current.getCenter();
+    if (!Number.isFinite(p.lat) || Math.abs(p.lat) > 90) return;
+    const lon = (((p.lng + 180) % 360) + 360) % 360 - 180;
+    setQueryCenter({ lat: Math.round(p.lat * 100) / 100, lon: Math.round(lon * 100) / 100 });
+    setRegion('custom');
+  };
+  const loadedCenter = queryCenter ||
+    {lat: (REGIONS[region]?.coords || REGIONS.bengaluru.coords)[0],
+     lon: (REGIONS[region]?.coords || REGIONS.bengaluru.coords)[1]};
   const counts = DOMAINS.map(d => ({
     ...d, data: d.id === 'flights' ? flightData : responses[d.id],
   }));
@@ -219,12 +255,14 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setBasemap('street')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'street' ? 'bg-slate-900 text-white' : 'bg-white')}>Street</button>
           <button onClick={() => setBasemap('satellite')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'satellite' ? 'bg-slate-900 text-white' : 'bg-white')}>Satellite</button>
+          <button onClick={loadCurrentArea} type="button" className="px-3 py-2 rounded border text-xs bg-sky-700 text-white">Load aircraft at map center</button>
           <button onClick={() => setRefresh(n => n + 1)} type="button" className="px-3 py-2 rounded border text-xs">Refresh feeds</button>
         </div>
       </div>
       <div className="flex flex-wrap gap-4 items-center">
         <label className="text-xs font-medium">Airspace
-          <select value={region} onChange={e => setRegion(e.target.value)} className="ml-2 rounded border border-slate-300 bg-white p-2">
+          <select value={region} onChange={e => { setQueryCenter(null); setRegion(e.target.value); }} className="ml-2 rounded border border-slate-300 bg-white p-2">
+            {region === 'custom' && <option value="custom">Custom map location</option>}
             {Object.entries(REGIONS).map(([key, value]) => <option key={key} value={key}>{value.name}</option>)}
           </select>
         </label>
@@ -235,6 +273,9 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
           </select>
         </label>
         <span className="text-xs text-slate-500">Checked: {when(lastChecked)}</span>
+        <span className="text-xs text-slate-600">
+          Query center: {loadedCenter.lat.toFixed(2)}°, {loadedCenter.lon.toFixed(2)}° · 250 nautical mile radius
+        </span>
       </div>
       <div className="flex flex-wrap gap-4">
         {counts.map(d => <label key={d.id} className="flex gap-2 items-center text-xs">
@@ -251,7 +292,13 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       {flightData?.success && <p className="text-xs text-slate-600">
         <strong>Source: {flightData.provider}</strong> · {flightData.count} reported aircraft · Feed collected {when(flightData.retrievedAt)}
         {flightData.coverage ? ' · ' + flightData.coverage : ''}
+        {flightData.truncated ? ' · Result capped for performance' : ''}
       </p>}
+      <p className="text-xs text-slate-600">
+        Explore worldwide: drag or zoom the map to any location, then select
+        <strong> Load aircraft at map center</strong>. Only the highlighted 250 NM region is queried,
+        not every aircraft on Earth. A worldwide live stream requires a licensed provider.
+      </p>
     </div>
     <div className="grid grid-cols-1 xl:grid-cols-3">
       <div className="xl:col-span-2 min-w-0">
@@ -260,9 +307,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       </div>
       <aside className="min-w-0 border-l border-slate-200 flex flex-col">
         <div className="p-4 border-b space-y-2">
-          <h3 className="font-semibold text-sm">Aircraft in {REGIONS[region]?.name}</h3>
+          <h3 className="font-semibold text-sm">Aircraft near {REGIONS[region]?.name || 'selected map center'}</h3>
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search callsign, registration, type…" aria-label="Search aircraft" className="w-full rounded border border-slate-300 p-2 text-sm"/>
           <p className="text-xs text-slate-500">{visibleFlights.length} matching records · Click one to locate it</p>
+          {flights.length > 200 && <p className="text-xs text-amber-800">First 200 aircraft shown in list. Narrow search or map location.</p>}
         </div>
         <div className="overflow-y-auto divide-y divide-slate-100" style={{ maxHeight: 452 }}>
           {visibleFlights.slice(0, 200).map(r => <button key={r.id} type="button" onClick={() => selectAircraft(r)}
@@ -312,6 +360,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       </> : <p className="text-sm text-slate-500">Select an aircraft silhouette or an item from the aircraft list to see details. Only fields the provider supplies will be shown.</p>}
     </div>
     <div className="px-4 pb-4 text-xs text-slate-500">
+      Global exploration shows the current 250 NM circle centered on your selected map location. Coverage depends on participating receivers; aircraft may not be identifiable or present in this feed.
+      <a className="ml-2 text-sky-700 underline" href="https://www.adsb.lol/docs/open-data/api" target="_blank" rel="noopener noreferrer">ADSB.lol data and license</a>. 
       Aircraft silhouettes are original ASURA icons, not FlightAware artwork. Position updates are periodic and may be delayed; this is not a safety-critical air traffic system. Map imagery and flight telemetry come from separate providers.
     </div>
   </section>;
