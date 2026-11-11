@@ -27,7 +27,7 @@ import {
 
 const NAV_LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard },
-  { href: '/query', label: 'Evidence AI Chat', icon: MessageSquare },
+  { href: '/agent', label: 'ASURA AI Agent', icon: MessageSquare },
   { href: '/search', label: 'Live Web Search', icon: Search },
   { href: '/tracking', label: 'Observations', icon: Crosshair },
   { href: '/map', label: 'Geospatial View', icon: Map },
