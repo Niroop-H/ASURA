@@ -1,3 +1,4 @@
+import {getWorldwideWeather} from '@/lib/weatherService';
 // Live-source adapters: no fixtures, seed records, or silent fallback.
 const SOURCE_LABELS = {
   earthquakes: 'USGS Earthquake Catalog',
@@ -199,46 +200,51 @@ export async function getLiveSource(source, options = {}) {
       throw new Error(failures.join('; '));
     }
     if (source === 'weather') {
-      // Support location-scoped weather queries. Without coordinates, retain
-      // Bengaluru as the explicitly labelled dashboard default.
-      const weatherLat = Number.isFinite(options.lat) && Math.abs(options.lat) <= 90 ? options.lat : 12.9716;
-      const weatherLon = Number.isFinite(options.lon) && Math.abs(options.lon) <= 180 ? options.lon : 77.5946;
-      const weatherName = typeof options.label === 'string' && options.label.trim()
-        ? options.label.trim().slice(0,90) : 'Bengaluru';
-      const key = process.env.OPENWEATHERMAP_API_KEY;
-      if (key) {
-        try {
-          const url = 'https://api.openweathermap.org/data/2.5/weather?lat=' + weatherLat.toFixed(4) +
-            '&lon=' + weatherLon.toFixed(4) + '&units=metric&appid=' + encodeURIComponent(key);
-          const data = await retrieve(url, 300);
-          if (!Number.isFinite(data.main?.temp)) throw new Error('Invalid OpenWeather payload');
-          return { success: true, source, provider: 'OpenWeather', count: 1, refreshSeconds: 300,
-            retrievedAt: new Date().toISOString(), records: [{
-              id: weatherName.toLowerCase(), title: weatherName + ' current weather',
-              lat: data.coord?.lat ?? weatherLat, lon: data.coord?.lon ?? weatherLon,
-              observedAt: when(data.dt * 1000), source: 'OpenWeather',
-              temperatureC: data.main.temp, humidity: data.main.humidity,
-              windKmh: Number.isFinite(data.wind?.speed) ? data.wind.speed * 3.6 : null,
-              description: data.weather?.[0]?.description || 'Weather',
-              url: 'https://openweathermap.org/',
-            }] };
-        } catch { /* Fall through to the independent public forecast source. */ }
+      // Dashboard fallback is explicitly identified as the Bengaluru point.
+      // DEVASHRI and Worldwide Weather both supply named coordinates.
+      const lat=Number.isFinite(options.lat)?options.lat:12.9716;
+      const lon=Number.isFinite(options.lon)?options.lon:77.5946;
+      const label=String(options.label||'Bengaluru, India').slice(0,130);
+      const data=await getWorldwideWeather(lat,lon,{label,
+        state:String(options.state||''),country:String(options.country||'')});
+      const current=data.current;
+      const point=data.location;
+      const records=[];
+      if(current)records.push({
+        id:'current:'+lat.toFixed(3)+','+lon.toFixed(3),
+        title:(current.stale?'STALE provider weather for ':'Current provider weather for ')+label,
+        lat:point.lat,lon:point.lon,source:'OpenWeather',
+        observedAt:current.observedAt,weatherDataType:'provider-current',
+        description:current.description+
+          (current.stale?' (stale: '+current.ageMinutes+' minutes old)':'')+
+          ' · Feels like '+(current.feelsLikeC??'unknown')+' °C'+
+          ' · Humidity '+(current.humidityPercent??'unavailable')+'%',
+        temperatureC:current.temperatureC,humidity:current.humidityPercent,
+        windKmh:current.windKmh,observationAgeMinutes:current.ageMinutes,
+        url:'https://openweathermap.org/',
+      });
+      for(const item of data.hourly.slice(0,8)){
+        records.push({
+          id:'forecast:'+item.at,title:'Three-hour prediction for '+label+' at '+item.localTime,
+          lat:point.lat,lon:point.lon,source:'OpenWeather',
+          observedAt:null,forecastFor:item.at,weatherDataType:'three-hour-prediction',
+          description:item.description+' · Forecast valid at '+item.localTime+' ('+
+            (data.timezoneName||'location offset')+')'+
+            ' · Humidity '+(item.humidityPercent??'unknown')+'%'+
+            ' · Rain probability '+(item.precipitationProbabilityPercent??'unknown')+'%',
+          temperatureC:item.temperatureC,humidity:item.humidityPercent,windKmh:item.windKmh,
+          precipitationProbabilityPercent:item.precipitationProbabilityPercent,
+          url:'https://openweathermap.org/forecast5',
+        });
       }
-      const data = await retrieve('https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=' +
-        weatherLat.toFixed(4) + '&lon=' + weatherLon.toFixed(4), 300);
-      const sample = data.properties?.timeseries?.[0];
-      const details = sample?.data?.instant?.details;
-      if (!Number.isFinite(details?.air_temperature)) throw new Error('MET Norway data unavailable');
-      return { success: true, source, provider: 'MET Norway Locationforecast', count: 1,
-        refreshSeconds: 300, retrievedAt: new Date().toISOString(),
-        coverage: 'Forecast model estimates, not direct sensor observations',
-        attribution: 'Weather data from MET Norway — met.no',
-        records: [{ id: weatherName.toLowerCase(), title: weatherName + ' forecast conditions',
-          lat: weatherLat, lon: weatherLon, observedAt: when(sample.time),
-          source: 'MET Norway', temperatureC: details.air_temperature,
-          humidity: details.relative_humidity, windKmh: details.wind_speed * 3.6,
-          description: 'Current forecast estimate (model output)',
-          url: 'https://www.met.no/' }] };
+      return {success:true,source,provider:'OpenWeather',count:records.length,
+        records,retrievedAt:data.retrievedAt,refreshSeconds:600,
+        coverage:label+' · point '+lat.toFixed(4)+', '+lon.toFixed(4)+
+          '. Current conditions and three-hour model predictions are separate data types; not whole-state weather.',
+        attribution:data.attribution,
+        sourceStatuses:data.sourceStatuses,providerErrors:data.errors,
+        observationType:'current provider conditions and forecast model predictions',
+        providerTime:current?.observedAt||null};
     }
     if (source === 'news') {
       if (!process.env.NEWSAPI_KEY) {
