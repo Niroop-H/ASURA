@@ -218,6 +218,8 @@ export default function PublicCameraExplorer(){
  const [selectedWallSlot,setSelectedWallSlot]=useState(null);
  const [autoLoading,setAutoLoading]=useState(false);
  const [autoError,setAutoError]=useState('');
+ const sparePoolRef=useRef([]);
+ const failedStreamsRef=useRef(new Set());
  const [manualTitle,setManualTitle]=useState('');
  const [manualOperator,setManualOperator]=useState('');
  const [manualUrl,setManualUrl]=useState('');
@@ -288,6 +290,7 @@ export default function PublicCameraExplorer(){
   let target=selectedWallSlot===null?wallSlots.findIndex(c=>!c):selectedWallSlot;
   if(target<0)target=0;
   setWallSlots(prev=>prev.map((item,i)=>i===target?camera:item));
+  // Manual selections are never rotated out automatically.
   setSelectedWallSlot(null);
  };
  const addOperatorStream=event=>{
@@ -315,6 +318,19 @@ export default function PublicCameraExplorer(){
    setManualUrl('');setManualTitle('');setManualOperator('');setManualAuthorized(false);
   }catch(e){setManualError(e.message||'Stream URL rejected');}
  };
+ const replaceFailedStream=(slot,camera)=>{
+  if(!camera?.autoAssigned)return; // Never silently replace a user-supplied stream.
+  if(wallSlots[slot]?.id!==camera.id)return;
+  failedStreamsRef.current.add(camera.id);
+  const used=new Set(wallSlots.filter(Boolean).map(c=>c.id));
+  const replacement=sparePoolRef.current.find(c=>!used.has(c.id)&&!failedStreamsRef.current.has(c.id));
+  if(!replacement){
+   setAutoError('A selected HLS feed cannot decode or has stopped. No verified spare remains in this batch; use "Fill with 6 available live streams" to test fresh sources, or reconnect this tile.');
+   return;
+  }
+  setWallSlots(previous=>previous.map((item,i)=>i===slot&&item?.id===camera.id?replacement:item));
+  setAutoError('Camera '+(slot+1)+' was unavailable and has been switched to a different operator-published HLS playlist. Browser playback is being rechecked.');
+ };
  const autoFillWall=async()=>{
   setAutoLoading(true);setAutoError('');
   try{
@@ -322,17 +338,22 @@ export default function PublicCameraExplorer(){
    for(const key of ['continent','country','state','district','region','source']){
     if(filters[key])qs.set(key,filters[key]);
    }
+   qs.set('limit','12');
    const response=await fetch('/api/cameras/live?'+qs,{cache:'no-store'});
    const data=await response.json();
    if(!data.success)throw new Error(data.error||'Live feed search failed');
-   const sources=(data.cameras||[]).filter(c=>c.sourceType==='hls'&&c.videoUrl).slice(0,6);
+   const sources=(data.cameras||[]).filter(c=>c.sourceType==='hls'&&c.videoUrl)
+     .slice(0,12).map(c=>({...c,autoAssigned:true}));
    if(!sources.length){
     setAutoError('No verified public HLS video feeds for this selected region or provider. Choose North America → United States → California, or arrange an authorized live-video provider for this country.');
     return;
    }
-   setWallSlots([...sources,...Array(6-sources.length).fill(null)]);
+   sparePoolRef.current=sources;
+   failedStreamsRef.current=new Set();
+   const assigned=sources.slice(0,6);
+   setWallSlots([...assigned,...Array(6-assigned.length).fill(null)]);
    setSelectedWallSlot(null);
-   if(sources.length<6)setAutoError('Only '+sources.length+' public HLS playlists responded during the source check. Empty tiles remain unassigned; inactive streams were not fabricated.');
+   if(assigned.length<6)setAutoError('Only '+assigned.length+' active public HLS media playlists were found. Blank slots remain unassigned; ASURA will not invent camera streams.');
   }catch(e){setAutoError(e.message||'Unable to load live wall feeds')}
   finally{setAutoLoading(false);}
  };
@@ -414,7 +435,8 @@ export default function PublicCameraExplorer(){
     onSelectSlot={setSelectedWallSlot}
     onRemove={index=>setWallSlots(previous=>previous.map((camera,i)=>i===index?null:camera))}
     onClear={()=>{setWallSlots(Array(6).fill(null));setSelectedWallSlot(null);setAutoError('');}}
-    onAutofill={autoFillWall} autoLoading={autoLoading} autoError={autoError}/>
+    onAutofill={autoFillWall} autoLoading={autoLoading} autoError={autoError}
+    onFailedStream={replaceFailedStream}/>
   <details className="defense-card p-4">
     <summary className="cursor-pointer font-semibold text-sm">Connect an operator-approved public live stream (India or any other country)</summary>
     <p className="text-xs text-slate-600 mt-3">
