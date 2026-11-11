@@ -237,8 +237,11 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       const detail = event.detail || {};
       setRouteOverlay(detail);
       if (detail.focusAirport && Number.isFinite(detail.focusAirport.lat) &&
-          Number.isFinite(detail.focusAirport.lon) && mapRef.current) {
-        mapRef.current.flyTo([detail.focusAirport.lat, detail.focusAirport.lon], 8, { duration: .5 });
+          Number.isFinite(detail.focusAirport.lon)) {
+        const {lat,lon}=detail.focusAirport;
+        setQueryCenter({lat:Math.round(lat*100)/100,lon:Math.round(lon*100)/100});
+        setRegion('custom');
+        if(mapRef.current)mapRef.current.flyTo([lat,lon],8,{duration:.5});
       }
     };
     window.addEventListener('asura:map-route', receive);
