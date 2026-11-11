@@ -220,6 +220,7 @@ export default function PublicCameraExplorer(){
  const [refresh,setRefresh]=useState(0);
  const [liveOnly,setLiveOnly]=useState(false);
  const [wallSlots,setWallSlots]=useState(Array(6).fill(null));
+ const [wallHydrated,setWallHydrated]=useState(false);
  const [selectedWallSlot,setSelectedWallSlot]=useState(null);
  const [autoLoading,setAutoLoading]=useState(false);
  const [autoError,setAutoError]=useState('');
@@ -230,6 +231,47 @@ export default function PublicCameraExplorer(){
  const [manualUrl,setManualUrl]=useState('');
  const [manualAuthorized,setManualAuthorized]=useState(false);
  const [manualError,setManualError]=useState('');
+ // Persist only public Caltrans HLS wall selection URLs, never operator keys or
+ // private manually supplied URLs. Another ASURA monitor tab can restore them.
+ useEffect(()=>{
+  try{
+   const raw=localStorage.getItem('asura_public_camera_wall_v1');
+   const parsed=raw?JSON.parse(raw):[];
+   if(Array.isArray(parsed)&&parsed.length){
+    const slots=Array(6).fill(null);
+    for(let i=0;i<Math.min(6,parsed.length);i++){
+     const cam=parsed[i];
+     if(!cam||cam.provider!=='Caltrans CWWP2'||cam.sourceType!=='hls')continue;
+     try{
+      const url=new URL(cam.videoUrl);
+      if(url.protocol==='https:'&&url.hostname==='wzmedia.dot.ca.gov'&&
+       url.pathname.endsWith('.m3u8')&&!url.username&&!url.password&&
+       typeof cam.id==='string'&&cam.id.startsWith('caltrans-')){
+       slots[i]={id:cam.id,title:String(cam.title||'Public camera').slice(0,130),
+        provider:'Caltrans CWWP2',sourceType:'hls',videoUrl:url.href,
+        autoAssigned:cam.autoAssigned===true};
+      }
+     }catch{}
+    }
+    setWallSlots(slots);
+   }
+  }catch{}
+  setWallHydrated(true);
+  if(new URLSearchParams(window.location.search).get('wall')==='1'){
+   requestAnimationFrame(()=>document.querySelector('[aria-label="Six-camera monitoring wall"]')?.
+    scrollIntoView({behavior:'smooth',block:'start'}));
+  }
+ },[]);
+ useEffect(()=>{
+  if(!wallHydrated)return;
+  try{
+   const list=wallSlots.map(c=>c?.provider==='Caltrans CWWP2'?{
+    id:c.id,title:c.title,sourceType:c.sourceType,provider:c.provider,
+    videoUrl:c.videoUrl,autoAssigned:c.autoAssigned===true}:null);
+   if(list.every(v=>v===null))localStorage.removeItem('asura_public_camera_wall_v1');
+   else localStorage.setItem('asura_public_camera_wall_v1',JSON.stringify(list));
+  }catch{}
+ },[wallHydrated,wallSlots]);
  // Refresh signed Windy image URLs before their short free-tier expiration.
  useEffect(()=>{
   const timer=setInterval(()=>setRefresh(x=>x+1),8*60*1000);
