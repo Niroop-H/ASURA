@@ -168,12 +168,15 @@ function CameraDetail({camera}){
    <div className="space-y-2">
     <h4 className="text-sm font-semibold">Live stream / provider playback</h4>
     {camera.videoUrl&&safeLink(camera.videoUrl)?<>
-      {!playVideo?<button onClick={()=>setPlayVideo(true)}
+      {camera.sourceType==='clip'?<>
+        <video src={camera.videoUrl} controls playsInline preload="none" className="w-full rounded bg-slate-950" style={{aspectRatio:'16/9'}}/>
+        <p className="text-xs text-slate-600">Operator-published MP4 clip: recorded footage periodically updated by TfL, not continuous live video. The clip may be delayed or temporarily unavailable.</p>
+      </>:!playVideo?<button onClick={()=>setPlayVideo(true)}
         className="w-full rounded border border-sky-300 bg-sky-50 text-sky-800 p-6 text-sm font-medium">
         <Video className="mx-auto mb-2"/> Connect to official HLS stream
       </button>:<HlsVideo url={camera.videoUrl}/>}
       <a href={camera.videoUrl} target="_blank" rel="noopener noreferrer"
-       className="text-xs text-sky-700 underline">Open operator stream address</a>
+       className="text-xs text-sky-700 underline">Open operator video source</a>
     </>:camera.playerUrl&&safeLink(camera.playerUrl)?
       <a href={camera.playerUrl} target="_blank" rel="noopener noreferrer"
         className="inline-block px-4 py-3 border rounded text-sm text-sky-700 underline">Open licensed provider webcam player</a>
@@ -290,7 +293,7 @@ export default function PublicCameraExplorer(){
     <label className="text-xs space-y-1">
      <span className="block font-semibold">Camera provider</span>
      <select className="rounded border bg-white p-2 text-sm" value={filters.source} onChange={e=>choose('source',e.target.value)}>
-      <option value="all">All connected sources</option><option value="caltrans">Caltrans CWWP2</option><option value="windy">Windy Webcams</option>
+      <option value="all">All connected sources</option><option value="caltrans">Caltrans CWWP2</option><option value="tfl">TfL JamCams (London)</option><option value="windy">Windy Webcams</option>
      </select>
     </label>
     <button type="button" onClick={()=>setMapShown(x=>!x)} className="rounded border px-3 py-2 text-sm flex items-center gap-2">
@@ -335,7 +338,7 @@ export default function PublicCameraExplorer(){
         {c.videoUrl?<Video size={15} className="text-sky-600 flex-shrink-0"/>:<Camera size={15} className="text-slate-400 flex-shrink-0"/>}
        </div>
        <span className="text-xs text-slate-500 block mt-1">{[c.district,c.region,c.locality].filter(Boolean).join(' · ')}</span>
-       <span className="text-xs text-slate-500 block">{c.provider} · {c.videoUrl?'Video URL available':'Snapshot / provider preview'}</span>
+       <span className="text-xs text-slate-500 block">{c.provider} · {c.sourceType==='clip'?'Recent MP4 clip':c.videoUrl?'HLS stream URL available':'Snapshot / provider preview'}</span>
       </button>)}
      {!loading&&!cameras.length&&<p className="p-4 text-sm text-slate-500">No operator-published cameras in this connected-source selection.</p>}
     </div>
@@ -353,10 +356,13 @@ export default function PublicCameraExplorer(){
   </div>
   <section className="defense-card p-4 space-y-2">
    <h3 className="text-sm font-semibold">Source rights, freshness and limits</h3>
-   <p className="text-xs text-slate-600">{records.coverageNote||'Connected coverage is partial.'} Caltrans CWWP2 is an official travel-information source. Windy Webcams, when configured, is governed by its image-linking and player-embedding terms.</p>
+   <p className="text-xs text-slate-600">{records.coverageNote||'Connected coverage is partial.'} Caltrans CWWP2 and Transport for London JamCams are official travel-information sources. Windy Webcams, when configured, is governed by its image-linking and player-embedding terms.</p>
    <p className="text-xs text-slate-600">Only public, operator-published images/streams are listed. ASURA does not attempt camera authentication, scan private networks, record people, identify individuals, or link people across cameras. Some streams block third-party playback or become unavailable without notice.</p>
    <a href="https://dot.ca.gov/programs/traffic-operations/traveler-information/cwwp"
       className="text-xs text-sky-700 underline" target="_blank" rel="noopener noreferrer">Caltrans official CWWP2 source</a>
+   <span className="text-xs text-slate-500"> · </span>
+   <a href="https://tfl.gov.uk/info-for/open-data-users/" target="_blank" rel="noopener noreferrer"
+      className="text-xs text-sky-700 underline">TfL open data and licence</a>
    <span className="text-xs text-slate-500"> · </span>
    <a href="https://api.windy.com/webcams/docs" target="_blank" rel="noopener noreferrer"
       className="text-xs text-sky-700 underline">Windy Webcams API documentation</a>
