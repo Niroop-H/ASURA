@@ -415,6 +415,18 @@ export default function PublicCameraExplorer(){
       .filter(c=>c.sourceType==='hls'&&c.videoUrl&&c.segmentFetchVerified===true&&!used.has(c.id))
       .map(c=>({...c,autoAssigned:true}));
      sparePoolRef.current=[...sparePoolRef.current,...more].slice(0,12);
+     if(more.length){
+      setWallSlots(previous=>{
+       const used=new Set(previous.filter(Boolean).map(c=>c.id));
+       return previous.map(camera=>{
+        if(camera)return camera;
+        const spare=more.find(c=>!used.has(c.id));
+        if(spare){used.add(spare.id);return spare;}
+        return null;
+       });
+      });
+      if(sources.length<6&&more.length>=6-sources.length)setAutoError('');
+     }
     }).catch(()=>{});
   }catch(e){setAutoError(e.message||'Unable to load live wall feeds')}
   finally{setAutoLoading(false);}
