@@ -1,6 +1,7 @@
 import {NextResponse} from 'next/server';
 import {callGroq,groqHealth} from '@/lib/aiProvider';
 import {assembleAgentContext,selectAgentSources,loadPublicSnapshot,CONTEXT_SOURCES} from '@/lib/agentContext';
+import {airportArrivalIntent,verifiedAirportBoardAnswer} from '@/lib/aviationVerification';
 
 export const runtime='nodejs';
 export const maxDuration=60;
@@ -36,6 +37,11 @@ const system=[
  'ASURA is not validated for defence decisions, air traffic control, emergencies or operational decision-making.',
  'If user requests an unsupported external action, explain its integration requirements without claiming completion.',
  'If the user asks a general question without sources, answer naturally, not as a missing-evidence warning.',
+ 'Accuracy over completeness: never infer landings, departures, cancellations, origin/destination or runway from a nearby ADS-B aircraft position.',
+ 'ADS-B is a limited receiver-based observation snapshot, not an airline/airport arrivals board or a record of all flights today.',
+ 'For every recent aviation observation distinguish UTC observation time and provider refresh time; reject outdated positions or say freshness is unknown.',
+ 'The availability of a provider status record is not evidence that flight operations were verified.',
+ 'Never invent numerical tables of flights or airport movements; any row must correspond to a retrieved source record and its exact data type.',
 ].join('\n');
 
 export async function GET(){
@@ -59,6 +65,18 @@ export async function POST(request){
   typeof m.content==='string'&&m.content.trim())
   .slice(-10).map(m=>({role:m.role,content:m.content.slice(0,m.role==='assistant'?3000:1400)}));
  if(rateLimit(request))return answerError('Request limit reached. Please try again in a minute.',429);
+ // Airport arrivals/departures are verified operational events, NOT inferences
+ // from regional ADS-B observations. This deterministic gate bypasses the LLM
+ // completely and refuses a false arrivals table when licensed data is absent.
+ const airportIntent=airportArrivalIntent(message);
+ if(airportIntent){
+  try{
+   const board=await verifiedAirportBoardAnswer(airportIntent);
+   return NextResponse.json(board,{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+  }catch(e){
+   return answerError('Airport operations check failed: '+String(e.message||'Provider unavailable').slice(0,200),502);
+  }
+ }
  const mode=['auto','live','general'].includes(body?.mode)?body.mode:'auto';
  const active=selectAgentSources(message,mode,body?.sources);
  const region=['bengaluru','london','singapore','newyork','dubai'].includes(body?.region)?body.region:'bengaluru';
@@ -80,6 +98,8 @@ export async function POST(request){
   records:evidence.records.map(r=>({
    id:r.id,provider:r.provider,title:r.title,description:r.description,
    observedAt:r.observedAt,retrievedAt:r.retrievedAt,url:r.url,
+   distanceNm:r.distanceNm??null,positionAgeSeconds:r.positionAgeSeconds??null,
+   dataCategory:r.dataCategory||null,operationVerified:r.operationVerified===true,
   })),
   cameraSnapshot:screenshot?.success?
    {title:screenshot.camera.title,provider:screenshot.camera.provider,
@@ -112,5 +132,6 @@ export async function POST(request){
    checkedAt:screenshot.camera.checkedAt,captureTimeVerified:false,
   }:null,
   sourceCoverage:'Only records returned by authorized connected adapters; not exhaustive',
+  dataVerification:evidence.statuses.length?'partial-source-reported':'not-applicable',
  },{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 }
