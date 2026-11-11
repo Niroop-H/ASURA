@@ -191,7 +191,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       enabled.push({ id: d.id, records: responses[d.id]?.success ? responses[d.id].records : [] });
     }
     for (const d of enabled) {
-      for (const r of d.records.filter(valid).slice(0, 240)) {
+      for (const r of d.records.filter(valid).slice(0, 900)) {
         const key = d.id + ':' + r.id;
         const highlight = selected?.source === d.id && selected?.id === r.id;
         const marker = d.id === 'flights'
@@ -347,7 +347,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
       {flightData?.success && <p className="text-xs text-slate-600">
         <strong>Source: {flightData.provider}</strong> · {flightData.count} reported aircraft · Feed collected {when(flightData.retrievedAt)}
         {flightData.coverage ? ' · ' + flightData.coverage : ''}
-        {flightData.truncated ? ' · Result capped for performance' : ''}
+        {flightData.truncated ? ' · Provider results exceed the 1,500-record response cap' : ''}
+        {flights.length > 900 ? ' · Map displays first 900 marker records' : ''}
       </p>}
       <p className="text-xs text-slate-600">
         Explore worldwide: drag or zoom the map to any location, then select
@@ -365,10 +366,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
           <h3 className="font-semibold text-sm">Aircraft near {REGIONS[region]?.name || 'selected map center'}</h3>
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search callsign, registration, type…" aria-label="Search aircraft" className="w-full rounded border border-slate-300 p-2 text-sm"/>
           <p className="text-xs text-slate-500">{visibleFlights.length} matching records · Click one to locate it</p>
-          {flights.length > 200 && <p className="text-xs text-amber-800">First 200 aircraft shown in list. Narrow search or map location.</p>}
+          {flights.length > 500 && <p className="text-xs text-amber-800">First 500 aircraft shown in list. Narrow search or map location.</p>}
         </div>
         <div className="overflow-y-auto divide-y divide-slate-100" style={{ maxHeight: 452 }}>
-          {visibleFlights.slice(0, 200).map(r => <button key={r.id} type="button" onClick={() => selectAircraft(r)}
+          {visibleFlights.slice(0, 500).map(r => <button key={r.id} type="button" onClick={() => selectAircraft(r)}
             className={'w-full text-left p-3 hover:bg-slate-100 ' + (selected?.source === 'flights' && selected.id === r.id ? 'bg-sky-50' : '')}>
             <div className="flex justify-between gap-3">
               <span className="font-semibold text-sm text-slate-900">{r.title}</span>
