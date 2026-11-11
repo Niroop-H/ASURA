@@ -93,6 +93,7 @@ export default function AgentWorkspace(){
  const [showSettings,setShowSettings]=useState(false);
  const [copied,setCopied]=useState(null);
  const [linkedCamera,setLinkedCamera]=useState(null);
+ const [linkedWeather,setLinkedWeather]=useState(null);
  const controller=useRef(null);
  const bottom=useRef(null);
  const input=useRef(null);
@@ -102,6 +103,12 @@ export default function AgentWorkspace(){
   const title=params.get('cameraTitle')||'Selected public camera';
   if(/^(?:caltrans-|tfl-)[a-zA-Z0-9 _-]{1,110}$/.test(cameraId))
     setLinkedCamera({id:cameraId,title:title.slice(0,110)});
+  const lat=Number(params.get('weatherLat')),lon=Number(params.get('weatherLon'));
+  const rawLat=params.get('weatherLat'),rawLon=params.get('weatherLon');
+  if(rawLat!==null&&rawLon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&
+   Math.abs(lat)<=90&&Math.abs(lon)<=180){
+   setLinkedWeather({lat,lon,label:(params.get('weatherLocation')||'Selected point').slice(0,130)});
+  }
  },[]);
  useEffect(()=>{
   let mounted=true;
@@ -181,6 +188,19 @@ export default function AgentWorkspace(){
       className="text-xs rounded bg-sky-700 text-white px-3 py-2 disabled:opacity-50">
       Analyze public snapshot
      </button>
+    </div>}
+    {linkedWeather&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 flex flex-wrap gap-3 items-center justify-between">
+      <div>
+       <p className="text-sm font-semibold text-slate-900">Global weather point: {linkedWeather.label}</p>
+       <p className="text-xs text-slate-600">{linkedWeather.lat.toFixed(4)}°, {linkedWeather.lon.toFixed(4)}° · OpenWeather point forecast, not state-wide weather</p>
+      </div>
+      <button type="button" disabled={busy}
+       onClick={()=>send('Give the latest available current weather and short-term forecast for my selected weather point '+linkedWeather.label+'. Cite the provider, observation time, and differentiate current conditions from predictions.',{
+        mode:'auto',weatherPoint:linkedWeather
+       })}
+       className="bg-sky-700 text-white rounded px-3 py-2 text-xs disabled:opacity-40">
+       Ask DEVASHRI about this weather
+      </button>
     </div>}
     {!messages.length&&<div className="max-w-2xl mx-auto pt-8 space-y-6">
       <div className="text-center space-y-2">
@@ -288,6 +308,7 @@ export default function AgentWorkspace(){
      <Link href="/cameras">Public Camera Explorer</Link>
      <Link href="/flights">Live Flight Explorer</Link>
      <Link href="/globe">Cesium 3D Globe</Link>
+     <Link href="/weather">Worldwide Weather Explorer</Link>
      <Link href="/search">Web Search</Link>
     </div>
    </section>
