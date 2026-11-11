@@ -166,16 +166,23 @@ export async function getLiveSource(source, options = {}) {
       throw new Error(failures.join('; '));
     }
     if (source === 'weather') {
+      // Support location-scoped weather queries. Without coordinates, retain
+      // Bengaluru as the explicitly labelled dashboard default.
+      const weatherLat = Number.isFinite(options.lat) && Math.abs(options.lat) <= 90 ? options.lat : 12.9716;
+      const weatherLon = Number.isFinite(options.lon) && Math.abs(options.lon) <= 180 ? options.lon : 77.5946;
+      const weatherName = typeof options.label === 'string' && options.label.trim()
+        ? options.label.trim().slice(0,90) : 'Bengaluru';
       const key = process.env.OPENWEATHERMAP_API_KEY;
       if (key) {
         try {
-          const url = 'https://api.openweathermap.org/data/2.5/weather?lat=12.9716&lon=77.5946&units=metric&appid=' + encodeURIComponent(key);
+          const url = 'https://api.openweathermap.org/data/2.5/weather?lat=' + weatherLat.toFixed(4) +
+            '&lon=' + weatherLon.toFixed(4) + '&units=metric&appid=' + encodeURIComponent(key);
           const data = await retrieve(url, 300);
           if (!Number.isFinite(data.main?.temp)) throw new Error('Invalid OpenWeather payload');
           return { success: true, source, provider: 'OpenWeather', count: 1, refreshSeconds: 300,
             retrievedAt: new Date().toISOString(), records: [{
-              id: 'bengaluru', title: 'Bengaluru current weather',
-              lat: data.coord?.lat ?? 12.9716, lon: data.coord?.lon ?? 77.5946,
+              id: weatherName.toLowerCase(), title: weatherName + ' current weather',
+              lat: data.coord?.lat ?? weatherLat, lon: data.coord?.lon ?? weatherLon,
               observedAt: when(data.dt * 1000), source: 'OpenWeather',
               temperatureC: data.main.temp, humidity: data.main.humidity,
               windKmh: Number.isFinite(data.wind?.speed) ? data.wind.speed * 3.6 : null,
@@ -184,7 +191,8 @@ export async function getLiveSource(source, options = {}) {
             }] };
         } catch { /* Fall through to the independent public forecast source. */ }
       }
-      const data = await retrieve('https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=12.9716&lon=77.5946', 300);
+      const data = await retrieve('https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=' +
+        weatherLat.toFixed(4) + '&lon=' + weatherLon.toFixed(4), 300);
       const sample = data.properties?.timeseries?.[0];
       const details = sample?.data?.instant?.details;
       if (!Number.isFinite(details?.air_temperature)) throw new Error('MET Norway data unavailable');
@@ -192,8 +200,8 @@ export async function getLiveSource(source, options = {}) {
         refreshSeconds: 300, retrievedAt: new Date().toISOString(),
         coverage: 'Forecast model estimates, not direct sensor observations',
         attribution: 'Weather data from MET Norway — met.no',
-        records: [{ id: 'bengaluru', title: 'Bengaluru forecast conditions',
-          lat: 12.9716, lon: 77.5946, observedAt: when(sample.time),
+        records: [{ id: weatherName.toLowerCase(), title: weatherName + ' forecast conditions',
+          lat: weatherLat, lon: weatherLon, observedAt: when(sample.time),
           source: 'MET Norway', temperatureC: details.air_temperature,
           humidity: details.relative_humidity, windKmh: details.wind_speed * 3.6,
           description: 'Current forecast estimate (model output)',
