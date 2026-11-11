@@ -19,11 +19,15 @@ export async function GET(request, { params }) {
   if (latParam !== null || lonParam !== null) {
     lat = isCoordinate(latParam, -90, 90);
     lon = isCoordinate(lonParam, -180, 180);
-    if (lat === null || lon === null || !['flights', 'flightaware'].includes(source)) {
+    if (lat === null || lon === null || !['flights', 'flightaware', 'weather'].includes(source)) {
       return NextResponse.json({ success: false, error: 'Invalid geographic coordinates or unsupported source' }, { status: 400 });
     }
   }
-  const result = await getLiveSource(source, { region, lat, lon });
+  const label=(query.get('label')||'').trim().slice(0,130);
+  const state=(query.get('state')||'').trim().slice(0,90);
+  const country=(query.get('country')||'').trim().slice(0,80);
+  const result = await getLiveSource(source, { region, lat, lon,
+    ...(source==='weather'&&lat!==null&&lon!==null?{label:label||'Selected global point',state,country}:{}) });
   const response = NextResponse.json(result, { status: result.success ? 200 : (result.status || 502) });
   response.headers.set('Cache-Control', source === 'flights'
     ? 'public, s-maxage=20, stale-while-revalidate=10'
