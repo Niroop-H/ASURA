@@ -64,7 +64,7 @@ export default function LiveGeoMap({region='bengaluru'}){
         const response=await fetch('/api/live/'+source.id+(source.id==='flights'?'?region='+region:''),{cache:'no-store'});
         const result=await response.json();
         if(active)setResponses(p=>({...p,[source.id]:result}));
-      }catch(e){if(active)setResponses(p=>({...p,[source.id]:{success:false,error:e.message,records:[]} ]}));}
+      }catch(e){if(active)setResponses(p=>({...p,[source.id]:{success:false,error:e.message,records:[]}}));}
     }));
     load();
     const timer=setInterval(load,90000);
