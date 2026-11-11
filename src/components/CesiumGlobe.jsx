@@ -1,0 +1,309 @@
+'use client';
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
+
+const VERSION='1.146.0';
+const CESIUM_BASE='https://cdn.jsdelivr.net/npm/cesium@'+VERSION+'/Build/Cesium/';
+const VIIRS_LAYER='VIIRS_NOAA20_CorrectedReflectance_TrueColor';
+const GIBS='https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/';
+const validPoint=r=>r&&Number.isFinite(r.lat)&&Number.isFinite(r.lon)&&Math.abs(r.lat)<=90&&Math.abs(r.lon)<=180;
+const asDate=v=>{
+  if(!v)return 'Not supplied';
+  const d=new Date(v);
+  return Number.isNaN(d.getTime())?'Invalid source time':d.toLocaleString();
+};
+const svgPlane='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 36"><path d="M16 1C13 1 14 7 14 13L2 21V25L14 22V29L9 32V35L16 33L23 35V32L18 29V22L30 25V21L18 13V6C18 2 17 1 16 1Z" fill="#20c7f4" stroke="#ffffff" stroke-width="1.6"/></svg>';
+const smallPlane='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svgPlane);
+const ICON_COLORS={earthquakes:'#f97316',events:'#84cc16',weather:'#facc15'};
+
+function loadCesium(){
+ if(typeof window==='undefined')return Promise.reject(new Error('Cesium requires a browser'));
+ if(window.Cesium)return Promise.resolve(window.Cesium);
+ if(window.__asuraCesiumPromise)return window.__asuraCesiumPromise;
+ window.CESIUM_BASE_URL=CESIUM_BASE;
+ window.__asuraCesiumPromise=new Promise((resolve,reject)=>{
+  const css=document.createElement('link');
+  css.rel='stylesheet';css.href=CESIUM_BASE+'Widgets/widgets.css';
+  document.head.appendChild(css);
+  const script=document.createElement('script');
+  script.src=CESIUM_BASE+'Cesium.js';
+  script.async=true;
+  script.onload=()=>window.Cesium?resolve(window.Cesium):reject(new Error('Cesium library loaded without Cesium global'));
+  script.onerror=()=>reject(new Error('CesiumJS CDN unavailable'));
+  document.head.appendChild(script);
+ });
+ return window.__asuraCesiumPromise;
+}
+function makeBasemap(C,source,date){
+ if(source==='street')return new C.OpenStreetMapImageryProvider({
+  url:'https://tile.openstreetmap.org/',credit:'© OpenStreetMap contributors'});
+ if(source==='daily'){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))throw new Error('NASA imagery date unavailable');
+  return new C.UrlTemplateImageryProvider({
+   url:GIBS+VIIRS_LAYER+'/default/'+date+'/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpeg',
+   tilingScheme:new C.WebMercatorTilingScheme(),maximumLevel:9,
+   credit:'NASA GIBS, NOAA-20 VIIRS; selected day '+date,
+   hasAlphaChannel:false,
+  });
+ }
+ return new C.UrlTemplateImageryProvider({
+  url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  maximumLevel:19,
+  credit:'Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community; acquisition date varies',
+ });
+}
+const toCart=(C,r,alt=0)=>C.Cartesian3.fromDegrees(r.lon,r.lat,alt);
+export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=[12.9716,77.5946],onSelect=null,onViewportCenter=null}){
+ const mount=useRef(null),viewerRef=useRef(null),cesiumRef=useRef(null),idLookup=useRef(new Map());
+ const tileset=useRef(null),onViewport=useRef(onViewportCenter);
+ const [ready,setReady]=useState(false),[error,setError]=useState('');
+ const [mode,setMode]=useState('satellite'),[catalog,setCatalog]=useState(null);
+ const [imageDate,setImageDate]=useState(''),[sceneInfo,setSceneInfo]=useState('WGS84 3D globe');
+ const [buildings,setBuildings]=useState(false),[terrain,setTerrain]=useState(false),[ionStatus,setIonStatus]=useState('Checking Cesium ion access');
+ const [selected,setSelected]=useState(null),[clockTick,setClockTick]=useState(Date.now());
+ const planes=useMemo(()=>records.filter(r=>r.sourceType==='flights'&&validPoint(r)),[records]);
+ const newestObservation=useMemo(()=>{
+   const d=planes.map(r=>Date.parse(r.observedAt)).filter(Number.isFinite);
+   return d.length?Math.max(...d):null;
+ },[planes]);
+ useEffect(()=>{onViewport.current=onViewportCenter;},[onViewportCenter]);
+ useEffect(()=>{
+  let active=true;
+  fetch('/api/imagery/catalog',{cache:'no-store'})
+   .then(r=>r.json()).then(d=>{if(active){setCatalog(d);if(d.success)setImageDate(d.preferredDate);}})
+   .catch(e=>{if(active)setCatalog({success:false,error:e.message});});
+  const t=setInterval(()=>setClockTick(Date.now()),10000);
+  return()=>{active=false;clearInterval(t);};
+ },[]);
+ useEffect(()=>{
+  let active=true,unregister=null;
+  (async()=>{
+   const C=await loadCesium();
+   let publicConfig={ionEnabled:false};
+   try{publicConfig=await fetch('/api/cesium/config').then(r=>r.json());}catch{}
+   if(!active||!mount.current)return;
+   if(publicConfig.ionEnabled&&publicConfig.publicViewerToken){
+    C.Ion.defaultAccessToken=publicConfig.publicViewerToken;
+    setIonStatus('Viewer-scoped Cesium ion token configured');
+   } else setIonStatus('No public Cesium ion token: geometric WGS84 globe active');
+   const viewer=new C.Viewer(mount.current,{
+    baseLayer:false,baseLayerPicker:false,
+    geocoder:false,homeButton:true,navigationHelpButton:false,
+    sceneModePicker:false,animation:false,timeline:false,fullscreenButton:false,
+    infoBox:false,selectionIndicator:false,scene3DOnly:true,
+    terrainProvider:new C.EllipsoidTerrainProvider(),
+    requestRenderMode:true,maximumRenderTimeChange:60,
+   });
+   viewerRef.current=viewer;
+   cesiumRef.current=C;
+   viewer.scene.globe.depthTestAgainstTerrain=true;
+   viewer.scene.globe.enableLighting=false;
+   viewer.scene.fog.enabled=false;
+   viewer.imageryLayers.addImageryProvider(makeBasemap(C,'satellite',null));
+   viewer.camera.setView({
+    destination:C.Cartesian3.fromDegrees(initialCenter[1],initialCenter[0],1100000),
+    orientation:{heading:0,pitch:C.Math.toRadians(-65),roll:0},
+   });
+   unregister=viewer.camera.moveEnd.addEventListener(()=>{
+    try{
+     const middle=new C.Cartesian2(viewer.canvas.clientWidth/2,viewer.canvas.clientHeight/2);
+     const picked=viewer.camera.pickEllipsoid(middle,viewer.scene.globe.ellipsoid);
+     if(!picked)return;
+     const geo=C.Cartographic.fromCartesian(picked);
+     onViewport.current?.({lat:C.Math.toDegrees(geo.latitude),lon:C.Math.toDegrees(geo.longitude)});
+    }catch{}
+   });
+   viewer.screenSpaceEventHandler.setInputAction(event=>{
+    const target=viewer.scene.pick(event.position);
+    const entity=target?.id;
+    if(!entity||!idLookup.current.has(entity.id))return;
+    const record=idLookup.current.get(entity.id);
+    setSelected(record);
+    onSelect?.(record);
+   },C.ScreenSpaceEventType.LEFT_CLICK);
+   if(publicConfig.ionEnabled){
+    try{
+     // Fail closed to ellipsoid if asset permission or quota doesn't allow world terrain.
+     const t=await C.createWorldTerrainAsync({requestVertexNormals:true});
+     if(active&&!viewer.isDestroyed()){viewer.terrainProvider=t;setTerrain(true);setSceneInfo('Cesium World Terrain');viewer.scene.requestRender();}
+    }catch(e){if(active)setIonStatus('Cesium terrain unavailable: '+e.message);}
+   }
+   if(active)setReady(true);
+   if(!active&&!viewer.isDestroyed())viewer.destroy();
+  })().catch(e=>{if(active)setError(e.message)});
+  return()=>{
+   active=false;
+   if(typeof unregister==='function')unregister();
+   const viewer=viewerRef.current;
+   if(viewer&&!viewer.isDestroyed())viewer.destroy();
+   viewerRef.current=null;
+   cesiumRef.current=null;
+   idLookup.current.clear();
+  };
+ },[]);
+ useEffect(()=>{
+  const viewer=viewerRef.current,C=cesiumRef.current;
+  if(!ready||!viewer||!C)return;
+  try{
+   viewer.imageryLayers.removeAll(true);
+   viewer.imageryLayers.addImageryProvider(makeBasemap(C,mode,imageDate));
+   viewer.scene.requestRender();
+  }catch(e){setError('Imagery layer error: '+e.message);}
+ },[ready,mode,imageDate]);
+ useEffect(()=>{
+  const viewer=viewerRef.current,C=cesiumRef.current;
+  if(!ready||!viewer||!C)return;
+  const ids=new Map();
+  viewer.entities.removeAll();
+  const maxRecords=850;
+  for(const r of records.filter(validPoint).slice(0,maxRecords)){
+    const name=String(r.title||r.id||'Observation');
+    const id=String(r.sourceType||'event')+':'+String(r.id||name);
+    const aircraft=r.sourceType==='flights';
+    const position=toCart(C,r,aircraft&&Number.isFinite(r.altitudeFeet)?Math.max(0,r.altitudeFeet*.3048):0);
+    const entity={
+      id,
+      name,
+      position,
+      properties:{source:r.source||'',observedAt:r.observedAt||null},
+      ...(aircraft
+        ?{billboard:{image:smallPlane,width:24,height:28,
+            rotation:C.Math.toRadians(Number.isFinite(r.heading)?-r.heading:0),
+            horizontalOrigin:C.HorizontalOrigin.CENTER,verticalOrigin:C.VerticalOrigin.CENTER}}
+        :{point:{pixelSize:9,
+            color:C.Color.fromCssColorString(ICON_COLORS[r.sourceType]||'#f59e0b'),
+            outlineColor:C.Color.WHITE,outlineWidth:2}}),
+    };
+    const created=viewer.entities.add(entity);
+    ids.set(created.id,r);
+  }
+  // Use real 3D airplane geometry for a bounded subset of visible aircraft.
+  for(const r of planes.slice(0,90)){
+   const entity=viewer.entities.getById('flights:'+String(r.id||r.title));
+   if(!entity)continue;
+   entity.billboard=undefined;
+   entity.orientation=C.Transforms.headingPitchRollQuaternion(
+     entity.position.getValue(C.JulianDate.now()),
+     new C.HeadingPitchRoll(C.Math.toRadians(Number.isFinite(r.heading)?r.heading:0),0,0));
+   entity.model=new C.ModelGraphics({
+    uri:'/models/asura-aircraft.gltf',minimumPixelSize:20,maximumScale:125,
+    scale:1.2,runAnimations:false,
+   });
+  }
+  const route=routeOverlay||{};
+  const origin=route.origin,destination=route.destination;
+  function markAirport(a,type,color){
+   if(!validPoint(a))return;
+   viewer.entities.add({
+    id:'airport:'+type,position:toCart(C,a),
+    name:String(a.name||a.icao||type),
+    point:{pixelSize:15,color:C.Color.fromCssColorString(color),
+      outlineColor:C.Color.WHITE,outlineWidth:3},
+    label:{text:String(a.iata||a.icao||a.id||type),pixelOffset:new C.Cartesian2(0,-22),
+      font:'bold 14px sans-serif',fillColor:C.Color.WHITE,
+      outlineColor:C.Color.BLACK,outlineWidth:3,style:C.LabelStyle.FILL_AND_OUTLINE},
+   });
+  }
+  markAirport(origin,'origin','#22c55e');
+  markAirport(destination,'destination','#ec4899');
+  if(validPoint(origin)&&validPoint(destination)){
+   viewer.entities.add({id:'airport-reference',
+    polyline:{positions:[toCart(C,origin),toCart(C,destination)],
+      width:2,material:new C.PolylineDashMaterialProperty({
+       color:C.Color.fromCssColorString('#cbd5e1'),dashLength:16})}});
+  }
+  const points=(Array.isArray(route.flightPoints)?route.flightPoints:[]).filter(validPoint).slice(-1200);
+  if(points.length>=2){
+   viewer.entities.add({id:'recorded-track',polyline:{
+    positions:points.map(p=>toCart(C,p,Number.isFinite(p.altitudeFeet)?p.altitudeFeet*.3048:0)),
+    width:3,material:C.Color.fromCssColorString('#fb7185')}});
+  }
+  if(validPoint(route.tracking)){
+   viewer.entities.add({id:'selected-track-aircraft',
+    position:toCart(C,route.tracking,Number.isFinite(route.tracking.altitudeFeet)?
+      route.tracking.altitudeFeet*.3048:0),
+    billboard:{image:smallPlane,width:45,height:45},
+   });
+  }
+  idLookup.current=ids;
+  viewer.scene.requestRender();
+ },[ready,records,planes,routeOverlay]);
+ useEffect(()=>{
+  const viewer=viewerRef.current,C=cesiumRef.current;
+  const focus=routeOverlay?.focusAirport;
+  if(!ready||!viewer||!C||!validPoint(focus))return;
+  viewer.camera.flyTo({destination:C.Cartesian3.fromDegrees(focus.lon,focus.lat,220000),
+    orientation:{heading:0,pitch:C.Math.toRadians(-55),roll:0},duration:.7});
+ },[routeOverlay?.focusAirport?.lat,routeOverlay?.focusAirport?.lon,ready]);
+ const enableBuildings=async()=>{
+  const viewer=viewerRef.current,C=cesiumRef.current;
+  if(!viewer||!C)return;
+  if(tileset.current){
+   viewer.scene.primitives.remove(tileset.current);
+   tileset.current=null;setBuildings(false);viewer.scene.requestRender();return;
+  }
+  try{
+   const cfg=await fetch('/api/cesium/config').then(r=>r.json());
+   if(!cfg.ionEnabled)throw new Error('Configure CESIUM_ION_PUBLIC_TOKEN with read access to Cesium OSM Buildings.');
+   const buildingTiles=await C.createOsmBuildingsAsync();
+   tileset.current=viewer.scene.primitives.add(buildingTiles);
+   setBuildings(true);viewer.scene.requestRender();
+  }catch(e){setIonStatus('3D buildings: '+e.message);}
+ };
+ const tilt=angle=>{
+  const viewer=viewerRef.current,C=cesiumRef.current;
+  if(!viewer||!C)return;
+  const cart=viewer.camera.positionCartographic;
+  viewer.camera.setView({orientation:{heading:viewer.camera.heading,pitch:C.Math.toRadians(angle),roll:0}});
+  viewer.scene.requestRender();
+ };
+ const flightAge=newestObservation?Math.max(0,Math.round((clockTick-newestObservation)/1000)):null;
+ const sourceState=flightAge==null?'No aircraft observations':flightAge<=90?'Recently observed':flightAge<=180?'Delayed observations':'Stale positions';
+ return <div className="border rounded-lg overflow-hidden bg-slate-950 text-slate-100">
+  <div className="px-4 py-3 flex flex-wrap items-center gap-3 justify-between border-b border-slate-700">
+   <div>
+    <h3 className="font-semibold">CesiumJS 3D Earth Explorer</h3>
+    <p className="text-xs text-slate-300">{sceneInfo} · {planes.length} aircraft · {sourceState}
+      {flightAge!==null?' · newest position '+flightAge+'s old':''}</p>
+   </div>
+   <div className="flex flex-wrap gap-2 text-xs">
+    <button type="button" onClick={()=>setMode('street')}
+      className={'rounded px-3 py-2 border '+(mode==='street'?'bg-sky-700':'border-slate-600')}>Street</button>
+    <button type="button" onClick={()=>setMode('satellite')}
+      className={'rounded px-3 py-2 border '+(mode==='satellite'?'bg-sky-700':'border-slate-600')}>Satellite mosaic</button>
+    <button type="button" onClick={()=>setMode('daily')} disabled={!catalog?.success}
+      className={'rounded px-3 py-2 border disabled:opacity-40 '+(mode==='daily'?'bg-sky-700':'border-slate-600')}>NASA dated imagery</button>
+   </div>
+  </div>
+  {mode==='daily'&&<div className="px-4 py-3 bg-slate-900 border-b border-slate-700 flex flex-wrap items-center gap-3 text-xs">
+    <label>NASA VIIRS product day <input aria-label="Satellite product date" type="date"
+      className="bg-slate-800 border border-slate-600 rounded p-2 ml-2"
+      value={imageDate} min={catalog?.availableStart||'2018-01-05'} max={catalog?.lastCatalogDate}
+      onChange={e=>setImageDate(e.target.value)}/></label>
+    <span>Catalog latest: {catalog?.lastCatalogDate||'unknown'} · Coarse ~250m imagery · Clouds / gaps possible</span>
+  </div>}
+  {!catalog?.success&&catalog&&<p role="alert" className="px-4 py-2 text-amber-300 text-xs">NASA imagery metadata unavailable: {catalog.error}</p>}
+  {error&&<p role="alert" className="px-4 py-2 text-amber-300 text-xs">{error}</p>}
+  <div className="relative">
+   <div ref={mount} style={{height:600}} className="w-full bg-slate-950" aria-label="Interactive Cesium globe showing 3D terrain and attributed observation entities"/>
+   {!ready&&!error&&<div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 text-sm">Loading Cesium globe and 3D assets…</div>}
+  </div>
+  <div className="p-3 flex flex-wrap gap-2 items-center text-xs border-t border-slate-700">
+   <button onClick={()=>tilt(-90)} type="button" className="border border-slate-600 rounded px-3 py-2">Top-down</button>
+   <button onClick={()=>tilt(-48)} type="button" className="border border-slate-600 rounded px-3 py-2">Oblique 3D</button>
+   <button onClick={enableBuildings} type="button" className="border border-slate-600 rounded px-3 py-2">{buildings?'Hide buildings':'3D buildings (ion)'}</button>
+   <span className="text-slate-400">{ionStatus}</span>
+  </div>
+  {selected&&<div className="px-4 py-3 border-t border-slate-700 text-xs flex flex-wrap gap-4">
+   <strong className="text-sm">{selected.title}</strong>
+   <span>Provider: {selected.source}</span>
+   <span>Reported: {asDate(selected.observedAt)}</span>
+   <span>{selected.lat?.toFixed(4)}°, {selected.lon?.toFixed(4)}°</span>
+   {selected.altitudeFeet!=null&&<span>{Math.round(selected.altitudeFeet).toLocaleString()} ft altitude (reported)</span>}
+   {selected.speedKnots!=null&&<span>{Math.round(selected.speedKnots)} kn</span>}
+  </div>}
+  <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-700">
+   Satellite mosaic pixel dates vary and are not verified as 2026. NASA VIIRS uses a dated daily layer, not live video or high-resolution object identification.
+   Aircraft are public receiver reports and may be delayed or incomplete; 3D symbols are not to scale. This viewer is for research, not real-time operational decisions.
+  </p>
+ </div>;
+}
