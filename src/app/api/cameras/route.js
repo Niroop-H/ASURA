@@ -14,7 +14,7 @@ export async function GET(request){
  const district=text(p.get('district'),100);
  const region=text(p.get('region'),100);
  const q=text(p.get('q'),90);
- const page=Math.max(0,Math.min(20,parseInt(p.get('page')||'0',10)||0));
+ const page=Math.max(0,Math.min(300,parseInt(p.get('page')||'0',10)||0));
  if(continent&&!CONTINENTS.includes(continent))
   return NextResponse.json({success:false,error:'Invalid continent'},{status:400});
  if(country&&!/^[A-Z]{2}$/.test(country))
