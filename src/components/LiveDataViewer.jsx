@@ -68,12 +68,12 @@ export default function LiveDataViewer({ initialSource = 'earthquakes' }) {
         </div>}
         {!records.length && <p className="text-sm">The provider returned zero records for this feed.</p>}
         <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded">
-          {records.slice(0,100).map(r => <button key={r.id} onClick={() => setSelected(r.id)} type="button" className={'block w-full text-left p-3 hover:bg-slate-50 ' + (selected === r.id ? 'bg-sky-50' : '')}>
-            <span className="block text-sm font-medium">{r.title}</span>
+          {records.slice(0,100).map(r => <div key={r.id} className={'block w-full text-left p-3 hover:bg-slate-50 ' + (selected === r.id ? 'bg-sky-50' : '')}>
+            <button type="button" onClick={() => setSelected(r.id)} className="block text-sm font-medium text-left w-full">{r.title}</button>
             <span className="block text-xs text-slate-600 mt-1">{r.description}</span>
             <span className="block text-xs text-slate-500 mt-1">Observed/published: {DATE(r.observedAt)} · {r.source} {Number.isFinite(r.lat) && Number.isFinite(r.lon) ? '· ' + r.lat.toFixed(3) + ', ' + r.lon.toFixed(3) : ''}</span>
             {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-xs text-sky-700 inline-flex gap-1 items-center mt-1 underline">Original source <ExternalLink size={11}/></a>}
-          </button>)}
+          </div>)}
         </div>
       </>}
       <p className="text-xs text-slate-500">These are periodically retrieved public reports, not continuous surveillance, guaranteed real-time positioning, or a safety-critical data service.</p>
