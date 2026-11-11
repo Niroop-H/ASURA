@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import CesiumGlobe from './CesiumGlobe';
 
 const DOMAINS = [
   { id: 'flights', name: 'Aircraft', color: '#0284c7' },
@@ -63,9 +64,11 @@ function Datum({ label, value }) {
     <div className="text-sm font-medium break-words">{value}</div>
   </div>;
 }
-export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
+export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimension = '2D' }) {
   const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), coverageRef = useRef(null), routeLayerRef = useRef(null), markersRef = useRef(new Map());
   const [region, setRegion] = useState(initialRegion);
+  const [dimension, setDimension] = useState(initialDimension);
+  const [globeCenter, setGlobeCenter] = useState(null);
   const [routeOverlay, setRouteOverlay] = useState(null);
   const [queryCenter, setQueryCenter] = useState(null);
   const [mapViewCenter, setMapViewCenter] = useState(null);
@@ -326,6 +329,12 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
     setRegion('custom');
   };
   const loadCurrentArea = () => {
+    if (dimension === '3D') {
+      if (!globeCenter || !Number.isFinite(globeCenter.lat) || Math.abs(globeCenter.lat) > 90) return;
+      setQueryCenter({lat:Math.round(globeCenter.lat*100)/100,lon:Math.round(globeCenter.lon*100)/100});
+      setRegion('custom');
+      return;
+    }
     if (!mapRef.current) return;
     const p = mapRef.current.getCenter();
     if (!Number.isFinite(p.lat) || Math.abs(p.lat) > 90) return;
@@ -336,6 +345,20 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
   const loadedCenter = queryCenter ||
     {lat: (REGIONS[region]?.coords || REGIONS.bengaluru.coords)[0],
      lon: (REGIONS[region]?.coords || REGIONS.bengaluru.coords)[1]};
+  const globeRecords = useMemo(() => {
+    const all = [];
+    for(const domain of DOMAINS){
+      if(!layers.includes(domain.id))continue;
+      const data=domain.id==='flights'?flightData:responses[domain.id];
+      if(!data?.success||!Array.isArray(data.records))continue;
+      for(const record of data.records.slice(0,domain.id==='flights'?750:100)){
+        if(Number.isFinite(record.lat)&&Number.isFinite(record.lon)){
+          all.push({...record,sourceType:domain.id});
+        }
+      }
+    }
+    return all.slice(0,850);
+  },[responses,providerChoice,layers,flightData]);
   const counts = DOMAINS.map(d => ({
     ...d, data: d.id === 'flights' ? flightData : responses[d.id],
   }));
@@ -347,8 +370,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
           <p className="text-xs text-slate-500">Aircraft-shaped markers rotate with reported heading; positions update from the selected data provider.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => setBasemap('street')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'street' ? 'bg-slate-900 text-white' : 'bg-white')}>Street</button>
-          <button onClick={() => setBasemap('satellite')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'satellite' ? 'bg-slate-900 text-white' : 'bg-white')}>Satellite</button>
+          <button type="button" onClick={() => setDimension('2D')} className={'px-3 py-2 rounded border text-xs ' + (dimension==='2D'?'bg-sky-700 text-white':'bg-white')}>2D map</button>
+          <button type="button" onClick={() => setDimension('3D')} className={'px-3 py-2 rounded border text-xs ' + (dimension==='3D'?'bg-sky-700 text-white':'bg-white')}>Cesium 3D globe</button>
+          {dimension==='2D' && <button onClick={() => setBasemap('street')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'street' ? 'bg-slate-900 text-white' : 'bg-white')}>Street</button>}
+          {dimension==='2D' && <button onClick={() => setBasemap('satellite')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'satellite' ? 'bg-slate-900 text-white' : 'bg-white')}>Satellite</button>}
           <button onClick={loadCurrentArea} type="button" className="px-3 py-2 rounded border text-xs bg-sky-700 text-white">Load aircraft at map center</button>
           <button onClick={() => setRefresh(n => n + 1)} type="button" className="px-3 py-2 rounded border text-xs">Refresh feeds</button>
         </div>
@@ -421,12 +446,19 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru' }) {
         not every aircraft on Earth. A worldwide live stream requires a licensed provider.
       </p>
     </div>
+    {dimension==='3D' && <CesiumGlobe
+      records={globeRecords}
+      routeOverlay={routeOverlay}
+      initialCenter={globeCenter ? [globeCenter.lat,globeCenter.lon] : mapViewCenter ? [mapViewCenter.lat,mapViewCenter.lon] : (REGIONS[region]?.coords || REGIONS.bengaluru.coords)}
+      onViewportCenter={setGlobeCenter}
+      onSelect={record => setSelected({source:record.sourceType,id:record.id})}
+    />}
     <div className="grid grid-cols-1 xl:grid-cols-3">
-      <div className="xl:col-span-2 min-w-0">
+      <div className="xl:col-span-2 min-w-0" style={{display:dimension==='2D'?'block':'none'}}>
         {mapError && <p role="alert" className="text-red-700 text-sm p-3">{mapError}</p>}
         <div ref={target} style={{ height: 590 }} className="w-full bg-slate-900" aria-label="Interactive street or satellite map displaying aircraft-shaped live observation markers" />
       </div>
-      <aside className="min-w-0 border-l border-slate-200 flex flex-col">
+      <aside className={'min-w-0 border-l border-slate-200 flex flex-col '+(dimension==='3D'?'xl:col-span-3':'')}>
         <div className="p-4 border-b space-y-2">
           <h3 className="font-semibold text-sm">Aircraft near {REGIONS[region]?.name || 'selected map center'}</h3>
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search callsign, registration, type…" aria-label="Search aircraft" className="w-full rounded border border-slate-300 p-2 text-sm"/>
