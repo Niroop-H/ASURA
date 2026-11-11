@@ -23,8 +23,10 @@ const when = value => {
 const display = (value, unit = '') => value !== null && value !== undefined && value !== ''
   ? String(value) + unit : 'Not reported';
 const kmh = knots => Number.isFinite(knots) ? Math.round(knots * 1.852) : null;
-const valid = r => Number.isFinite(r.lat) && Number.isFinite(r.lon)
+const valid = r => r && Number.isFinite(r.lat) && Number.isFinite(r.lon)
   && Math.abs(r.lat) <= 90 && Math.abs(r.lon) <= 180;
+const validCoords = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) &&
+  Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
 const planeSVG = '<svg aria-hidden="true" viewBox="0 0 32 36" width="31" height="35" xmlns="http://www.w3.org/2000/svg"><path d="M16 1 C14.7 1 13.8 2.6 13.8 5 L13.8 13.3 2 21 L2 25.3 13.8 21.8 13.8 29.6 9.1 32 9.1 35 16 33.1 22.9 35 22.9 32 18.2 29.6 18.2 21.8 30 25.3 30 21 18.2 13.3 18.2 5 C18.2 2.6 17.3 1 16 1Z" fill="#0284c7" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 function airplaneIcon(L, heading, highlight) {
   const degrees = Number.isFinite(heading) ? ((heading % 360) + 360) % 360 : 0;
@@ -66,6 +68,22 @@ function Datum({ label, value }) {
 }
 export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimension = '2D' }) {
   const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), coverageRef = useRef(null), routeLayerRef = useRef(null), markersRef = useRef(new Map());
+  const move2D = (lat, lon, zoom = 8) => {
+    const map = mapRef.current;
+    if (!map || !validCoords(lat, lon) || !Number.isFinite(zoom)) return false;
+    const box = map.getContainer()?.getBoundingClientRect();
+    // Leaflet flyTo animating a zero-sized, hidden map produces (NaN, NaN) in Map._flyTo.
+    if (!box || box.width < 20 || box.height < 20) return false;
+    try {
+      map.stop();
+      map.invalidateSize({pan:false,animate:false});
+      map.setView([lat,lon],Math.max(2,Math.min(18,zoom)),{animate:false});
+      return true;
+    } catch(error) {
+      console.warn('ASURA: invalid map navigation suppressed', error.message);
+      return false;
+    }
+  };
   const [region, setRegion] = useState(initialRegion);
   const [dimension, setDimension] = useState(initialDimension);
   const [globeCenter, setGlobeCenter] = useState(null);
@@ -98,6 +116,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     : responses[selected?.source]?.records?.find(r => r.id === selected?.id);
 
   useEffect(() => {
+    if (dimension !== '2D') { setMapReady(false); return; }
     let mounted = true;
     initializeLeaflet().then(L => {
       if (!mounted || !target.current || mapRef.current) return;
@@ -122,11 +141,12 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       map.on('moveend', () => {
         if (!mounted) return;
         const p = map.getCenter();
+        if (!validCoords(p.lat,p.lng)) return;
         const lon = (((p.lng + 180) % 360) + 360) % 360 - 180;
-        setMapViewCenter({ lat: p.lat, lon });
+        if (validCoords(p.lat,lon)) setMapViewCenter({ lat: p.lat, lon });
       });
       setMapReady(true);
-      requestAnimationFrame(() => map.invalidateSize());
+      requestAnimationFrame(() => { if (mounted && mapRef.current === map) map.invalidateSize({pan:false,animate:false}); });
     }).catch(error => { if (mounted) setMapError(error.message); });
     return () => {
       mounted = false;
@@ -137,17 +157,18 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       coverageRef.current = null;
       markersRef.current = new Map();
     };
-  }, []);
+  }, [dimension]);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !REGIONS[region]) return;
-    mapRef.current.flyTo(REGIONS[region].coords, 8, { duration: .4 });
-  }, [region, mapReady]);
+    if (dimension !== '2D' || !mapReady || !REGIONS[region]) return;
+    move2D(REGIONS[region].coords[0], REGIONS[region].coords[1], 8);
+  }, [region, mapReady, dimension]);
   useEffect(() => {
     if (!mapReady || !coverageRef.current) return;
-    coverageRef.current.setLatLng(queryCenter
-      ? [queryCenter.lat, queryCenter.lon]
-      : (REGIONS[region]?.coords || REGIONS.bengaluru.coords));
+    const center = queryCenter && valid(queryCenter)
+      ? [queryCenter.lat,queryCenter.lon]
+      : (REGIONS[region]?.coords || REGIONS.bengaluru.coords);
+    if (validCoords(center[0],center[1])) coverageRef.current.setLatLng(center);
   }, [queryCenter, region, mapReady]);
 
   useEffect(() => {
@@ -244,7 +265,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         const {lat,lon}=detail.focusAirport;
         setQueryCenter({lat:Math.round(lat*100)/100,lon:Math.round(lon*100)/100});
         setRegion('custom');
-        if(mapRef.current)mapRef.current.flyTo([lat,lon],8,{duration:.5});
+        move2D(lat,lon,8);
       }
     };
     window.addEventListener('asura:map-route', receive);
@@ -299,7 +320,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     setSelected({ source: 'flights', id: r.id });
     const marker = markersRef.current.get('flights:' + r.id);
     if (marker) {
-      mapRef.current?.flyTo([r.lat, r.lon], Math.max(9, mapRef.current.getZoom()), { duration: .5 });
+      move2D(r.lat,r.lon,Math.max(9,mapRef.current?.getZoom()||9));
       marker.openPopup();
     }
   };
@@ -315,7 +336,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       setLookup(data);
       if (data.success && data.records.length) {
         const r = data.records[0];
-        if (mapRef.current) mapRef.current.flyTo([r.lat, r.lon], 9, {duration: .5});
+        if (valid(r)) { setQueryCenter({lat:Math.round(r.lat*100)/100,lon:Math.round(r.lon*100)/100}); setRegion('custom'); move2D(r.lat,r.lon,9); }
       }
     } catch (error) {
       setLookup({success: false, error: error.message || 'Unable to search aircraft'});
@@ -324,7 +345,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     }
   };
   const inspectLocated = record => {
-    if (mapRef.current) mapRef.current.flyTo([record.lat, record.lon], 9, { duration: .5 });
+    if (!valid(record)) return;
+    move2D(record.lat,record.lon,9);
     setQueryCenter({ lat: Math.round(record.lat * 100) / 100, lon: Math.round(record.lon * 100) / 100 });
     setRegion('custom');
   };
@@ -337,7 +359,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     }
     if (!mapRef.current) return;
     const p = mapRef.current.getCenter();
-    if (!Number.isFinite(p.lat) || Math.abs(p.lat) > 90) return;
+    if (!validCoords(p.lat,p.lng)) return;
     const lon = (((p.lng + 180) % 360) + 360) % 360 - 180;
     setQueryCenter({ lat: Math.round(p.lat * 100) / 100, lon: Math.round(lon * 100) / 100 });
     setRegion('custom');
@@ -454,10 +476,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       onSelect={record => setSelected({source:record.sourceType,id:record.id})}
     />}
     <div className="grid grid-cols-1 xl:grid-cols-3">
-      <div className="xl:col-span-2 min-w-0" style={{display:dimension==='2D'?'block':'none'}}>
+      {dimension === '2D' && <div className="xl:col-span-2 min-w-0">
         {mapError && <p role="alert" className="text-red-700 text-sm p-3">{mapError}</p>}
         <div ref={target} style={{ height: 590 }} className="w-full bg-slate-900" aria-label="Interactive street or satellite map displaying aircraft-shaped live observation markers" />
-      </div>
+      </div>}
       <aside className={'min-w-0 border-l border-slate-200 flex flex-col '+(dimension==='3D'?'xl:col-span-3':'')}>
         <div className="p-4 border-b space-y-2">
           <h3 className="font-semibold text-sm">Aircraft near {REGIONS[region]?.name || 'selected map center'}</h3>
