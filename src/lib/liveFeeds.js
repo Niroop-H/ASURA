@@ -123,11 +123,19 @@ export async function getLiveSource(source, options = {}) {
       };
       const center = { ...(regions[options.region] || regions.bengaluru) };
       if (Number.isFinite(options.lat) && Number.isFinite(options.lon)) {
-        center.lat = Math.round(options.lat * 10) / 10;
-        center.lon = Math.round(options.lon * 10) / 10;
+        center.lat = Math.round(options.lat * 10000) / 10000;
+        center.lon = Math.round(options.lon * 10000) / 10000;
         center.name = 'Custom map center';
       }
-      const radius = 250; // Public adsb.lol and adsb.fi geographic API maximum (nautical miles).
+      const radius = Number.isFinite(options.radiusNm)
+        ? Math.max(5, Math.min(250, Math.round(options.radiusNm))) : 250;
+      // adsb.lol geographic requests permit up to 250 nautical miles.
+      const haversineNm = (latitude, longitude) => {
+        const r = Math.PI / 180, dLat = (latitude - center.lat) * r;
+        const dLon = (longitude - center.lon) * r;
+        const a = Math.sin(dLat/2)**2 + Math.cos(center.lat*r)*Math.cos(latitude*r)*Math.sin(dLon/2)**2;
+        return 3440.065 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0,1-a)));
+      };
       const providers = [
         { name: 'adsb.lol', url: 'https://api.adsb.lol/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/' + radius },
         // adsb.fi explicitly restricts public service to non-commercial use.
@@ -139,27 +147,51 @@ export async function getLiveSource(source, options = {}) {
         try {
           const data = await retrieve(p.url, 25);
           if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft payload');
-          const now = Number(data.now) > 1e12 ? Number(data.now) / 1000 : Number(data.now) || Date.now() / 1000;
-          const eligible = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number(a.seen_pos ?? 0) <= 120);
-          const records = eligible.slice(0, 1500).map(a => ({
-            id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
-            lat: a.lat, lon: a.lon, source: p.name, observedAt: when((now - Number(a.seen_pos || 0)) * 1000),
-            description: [a.t || 'Aircraft', a.r || null].filter(Boolean).join(' · '),
-            registration: a.r || null, aircraftType: a.t || null, icao24: a.hex || null,
-            altitudeFeet: Number.isFinite(a.alt_baro) ? a.alt_baro : null,
-            geometricAltitudeFeet: Number.isFinite(a.alt_geom) ? a.alt_geom : null,
-            verticalRateFpm: Number.isFinite(a.baro_rate) ? a.baro_rate : null,
-            squawk: a.squawk || null, category: a.category || null,
-            speedKnots: Number.isFinite(a.gs) ? a.gs : null,
-            heading: Number.isFinite(a.track) ? a.track : null,
-            ageSeconds: Math.round(Number(a.seen_pos || 0)), onGround: a.alt_baro === 'ground', url: null,
-          }));
+          const providedNow = Number(data.now);
+          const now = providedNow > 1e12 ? providedNow / 1000 : providedNow;
+          const wallClock = Date.now()/1000;
+          if(!Number.isFinite(now)||now<wallClock-120||now>wallClock+15)
+            throw new Error('ADS-B snapshot time is missing, implausible or too old for near-real-time reporting');
+          const eligible = data.ac.filter(a => {
+            const age = Number(a.seen_pos);
+            if(!Number.isFinite(a.lat)||!Number.isFinite(a.lon)||
+              Math.abs(a.lat)>90||Math.abs(a.lon)>180||
+              !Number.isFinite(age)||age<0||age>60)return false;
+            const observed=now-age;
+            if(observed>wallClock+10||wallClock-observed>90)return false;
+            return haversineNm(a.lat,a.lon)<=radius+0.5;
+          });
+          const records = eligible.slice(0, 1500).map(a => {
+            const observed=now-Number(a.seen_pos);
+            return {
+              id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
+              lat: a.lat, lon: a.lon, source: p.name,
+              observedAt: when(observed*1000),providerTime:when(now*1000),
+              description: [a.t || 'Aircraft', a.r || null].filter(Boolean).join(' · '),
+              registration: a.r || null, aircraftType: a.t || null, icao24: a.hex || null,
+              altitudeFeet: Number.isFinite(a.alt_baro) ? a.alt_baro : null,
+              geometricAltitudeFeet: Number.isFinite(a.alt_geom) ? a.alt_geom : null,
+              verticalRateFpm: Number.isFinite(a.baro_rate) ? a.baro_rate : null,
+              squawk: a.squawk || null, category: a.category || null,
+              speedKnots: Number.isFinite(a.gs) ? a.gs : null,
+              heading: Number.isFinite(a.track) ? a.track : null,
+              ageSeconds: Math.round(wallClock-observed),
+              positionAgeSeconds: Math.round(wallClock-observed),
+              distanceNm: Math.round(haversineNm(a.lat,a.lon)*10)/10,
+              positionType:a.type||null,
+              onGround:a.alt_baro === 'ground', url: null,
+              operationVerified:false,
+            };
+          });
           return { success: true, source, provider: p.name, retrievedAt: new Date().toISOString(),
             refreshSeconds: 30, count: records.length, records, region: center.name,
             center: { lat: center.lat, lon: center.lon }, radiusNm: radius,
             positionedAircraft: eligible.length, providerReportedAircraft: Number(data.total) || data.ac.length,
             truncated: eligible.length > records.length,
-            coverage: '250 NM from selected map center; not a complete worldwide aircraft inventory',
+            providerTime: when(now*1000),
+            observationType: 'receiver-observed aircraft positions (NOT arrivals or departures)',
+            sourceAgeLimitSeconds: 90,
+            coverage: radius+' NM from selected map center ('+center.name+'); filtered to position fixes at most 90s old. Coverage is partial and does not confirm destination, landing or departures.',
             attribution: p.name === 'adsb.lol' ? 'Aircraft observations © adsb.lol contributors; ODbL 1.0' : 'Aircraft observations © adsb.fi contributors; non-commercial license' };
         } catch (error) { failures.push(p.name + ': ' + error.message); }
       }
