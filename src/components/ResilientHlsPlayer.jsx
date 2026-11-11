@@ -39,6 +39,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
  useEffect(()=>{
   let alive=true,hls=null,monitor=null,scheduled=null,live=null;
   let progressAt=Date.now(),startAt=Date.now(),previousPosition=-1,networkRecoveries=0,mediaRecoveries=0;
+  let lastResumeAttempt=0,stableSince=0,hadVideo=false;
   let failed=false,rendering=false,lastLabel='';
   const video=videoRef.current;
   const emit=(kind,label,age=null)=>{
@@ -61,7 +62,9 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    if(!alive)return;
    const t=video.currentTime;
    if(Number.isFinite(t)&&Math.abs(t-previousPosition)>.05){
-    previousPosition=t;progressAt=Date.now();rendering=true;
+    previousPosition=t;progressAt=Date.now();rendering=true;hadVideo=true;
+    if(!stableSince)stableSince=Date.now();
+    if(Date.now()-stableSince>15000){networkRecoveries=0;mediaRecoveries=0;}
     emit(live===false?'recorded':'playing',
      live===false?'Playing recorded HLS':live===true?'Live HLS decoding · capture delay unknown':'Video decoding · source latency unverified',0);
    }
@@ -69,10 +72,39 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
   const onPlaying=()=>{if(!rendering)emit('buffering','Playback started · verifying frames');};
   const onWaiting=()=>{if(!failed)emit('buffering','Buffering…');};
   const onError=()=>{if(!failed)emit('buffering','Media decoder interrupted · recovering');};
+  const onEnded=()=>{if(!failed)terminal('Operator stream ended unexpectedly');};
+  const autoResume=()=>{
+   if(!alive||failed||!enabled||!video)return;
+   if(!video.paused)return;
+   if(Date.now()-lastResumeAttempt<3500)return;
+   lastResumeAttempt=Date.now();
+   emit('recovering','Playback paused unexpectedly — resuming');
+   video.play().catch(e=>{
+    if(alive)emit('paused','Autoplay blocked by browser — press play to resume');
+   });
+  };
+  const onVisible=()=>{
+   if(!alive||failed||document.hidden)return;
+   progressAt=Date.now();
+   emit('recovering','Tab active — synchronizing live video');
+   try{
+    if(hls){
+     hls.startLoad(-1);
+     if(live===true&&Number.isFinite(hls.liveSyncPosition)){
+      const delta=hls.liveSyncPosition-video.currentTime;
+      if(delta>12)video.currentTime=hls.liveSyncPosition;
+     }
+    }
+   }catch{}
+   autoResume();
+  };
   video.addEventListener('timeupdate',onTimeUpdate);
   video.addEventListener('playing',onPlaying);
   video.addEventListener('waiting',onWaiting);
   video.addEventListener('error',onError);
+  video.addEventListener('ended',onEnded);
+  document.addEventListener('visibilitychange',onVisible);
+  window.addEventListener('pageshow',onVisible);
   video.muted=true;
   video.playsInline=true;
   video.autoplay=true;
@@ -82,9 +114,11 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
   monitor=setInterval(()=>{
    if(!alive||failed)return;
    if(document.hidden){progressAt=Date.now();return;}
-   if(video.paused&&video.readyState>=2){
-    emit('paused','Paused — press play');
-    return;
+   if(video.paused){
+    autoResume();
+    if(!video.paused)return;
+    // If resuming was blocked, still detect and report stale playback.
+    if(Date.now()-lastResumeAttempt<9000)return;
    }
    // Follow operator's rolling HLS edge, rather than drifting far behind.
    if(live===true&&hls&&Number.isFinite(hls.liveSyncPosition)&&
@@ -97,11 +131,12 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
      live===false?'Recorded video progressing':live===true?'Live playlist · video progressing':'Video progressing · capture delay unverified',age);
    }else if(Date.now()-startAt<16000&&!rendering){
     emit('buffering','Waiting for first decoded frames…',age);
-   }else if(age>22&&networkRecoveries>=2){
-    terminal('No advancing video frames');
-   }else if(age>12&&hls&&networkRecoveries<2){
+   }else if(age>25&&networkRecoveries>=3){
+    terminal('No advancing video frames; camera needs reconnect');
+   }else if(age>12&&hls&&networkRecoveries<3){
     networkRecoveries++;
-    emit('recovering','No new frames — reconnecting ('+networkRecoveries+'/2)',age);
+    stableSince=0;
+    emit('recovering','No new frames — reconnecting ('+networkRecoveries+'/3)',age);
     try{
      if(live===true&&Number.isFinite(hls.liveSyncPosition)&&
         Math.abs(hls.liveSyncPosition-video.currentTime)>12){
@@ -116,7 +151,7 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    if(video.canPlayType('application/vnd.apple.mpegurl')){
     video.src=camera.videoUrl;
     emit('connecting','Connecting native HLS…');
-    try{await video.play()}catch{emit('paused','Press play to allow playback');}
+    try{await video.play()}catch{emit('paused','Browser blocked autoplay; press play to resume');}
     return;
    }
    const Hls=await getHls();
@@ -145,13 +180,15 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    hls.on(Hls.Events.ERROR,(_name,error)=>{
     if(!alive||failed||!error?.fatal)return; // hls.js handles non-fatal errors internally
     const details=String(error.details||error.type||'Unknown playback fault');
-    if(error.type===Hls.ErrorTypes.MEDIA_ERROR&&mediaRecoveries<2){
+    if(error.type===Hls.ErrorTypes.MEDIA_ERROR&&mediaRecoveries<3){
      mediaRecoveries++;
-     emit('recovering','Decoder recovery ('+mediaRecoveries+'/2)');
+     stableSince=0;
+     emit('recovering','Decoder recovery ('+mediaRecoveries+'/3)');
      try{hls.recoverMediaError()}catch{terminal('Decoder could not recover');}
-    }else if(error.type===Hls.ErrorTypes.NETWORK_ERROR&&networkRecoveries<2){
+    }else if(error.type===Hls.ErrorTypes.NETWORK_ERROR&&networkRecoveries<3){
      networkRecoveries++;
-     emit('recovering','Network retry ('+networkRecoveries+'/2)');
+     stableSince=0;
+     emit('recovering','Network retry ('+networkRecoveries+'/3)');
      scheduled=setTimeout(()=>{if(!alive||failed)return;try{hls.startLoad(-1)}catch{terminal(details)}},1500*networkRecoveries);
     }else terminal(details);
    });
@@ -167,6 +204,9 @@ export default function ResilientHlsPlayer({camera,enabled,fit='contain',jumpToL
    video.removeEventListener('playing',onPlaying);
    video.removeEventListener('waiting',onWaiting);
    video.removeEventListener('error',onError);
+   video.removeEventListener('ended',onEnded);
+   document.removeEventListener('visibilitychange',onVisible);
+   window.removeEventListener('pageshow',onVisible);
    try{hls?.destroy()}catch{}
    if(hlsRef.current===hls)hlsRef.current=null;
    try{video.pause();video.removeAttribute('src');video.load()}catch{}
