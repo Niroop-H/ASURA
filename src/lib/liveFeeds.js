@@ -2,7 +2,7 @@
 const SOURCE_LABELS = {
   earthquakes: 'USGS Earthquake Catalog',
   events: 'NASA EONET',
-  flights: 'OpenSky Network',
+  flights: 'adsb.lol',
   weather: 'OpenWeather',
   news: 'NewsAPI',
 };
@@ -16,7 +16,7 @@ async function retrieve(url, interval) {
   const response = await fetch(url, {
     next: { revalidate: interval },
     signal: AbortSignal.timeout(10000),
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', 'User-Agent': 'ASURA/1.0 (public observation viewer; research@mahquantum.tech)' },
   });
   if (!response.ok) throw new Error('Upstream returned HTTP ' + response.status);
   return response.json();
@@ -26,7 +26,7 @@ function ok(source, data, items, interval) {
     retrievedAt: new Date().toISOString(), refreshSeconds: interval,
     count: items.length, records: items, providerTime: data?.time ? when(data.time * 1000) : null };
 }
-export async function getLiveSource(source) {
+export async function getLiveSource(source, options = {}) {
   if (!LIVE_SOURCES.includes(source)) {
     return { success: false, source, error: 'Unknown source', status: 400 };
   }
@@ -61,35 +61,74 @@ export async function getLiveSource(source) {
       return ok(source, data, items, interval);
     }
     if (source === 'flights') {
-      // Area limited to Bengaluru and adjacent airspace; avoid global polling and per-aircraft tracking.
-      const data = await retrieve('https://opensky-network.org/api/states/all?lamin=11.5&lomin=76.5&lamax=14&lomax=79', interval);
-      if (!Array.isArray(data.states)) throw new Error('Invalid OpenSky payload');
-      const items = data.states.slice(0, 150).map(s => ({
-        id: String(s[0]), title: String(s[1] || s[0]).trim() || 'Aircraft',
-        lat: s[6], lon: s[5], observedAt: s[4] ? when(s[4] * 1000) : null,
-        source: 'OpenSky', url: null,
-        description: String(s[2] || 'Unknown origin') + ' · ' +
-          (Number.isFinite(s[7]) ? Math.round(s[7]) + ' m altitude' : 'altitude unknown') +
-          (s[8] ? ' · on ground' : ''),
-      })).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
-      return ok(source, data, items, interval);
+      const regions = {
+        bengaluru: { lat: 12.9716, lon: 77.5946, name: 'Bengaluru' },
+        london: { lat: 51.4700, lon: -0.4543, name: 'London' },
+        singapore: { lat: 1.3644, lon: 103.9915, name: 'Singapore' },
+        newyork: { lat: 40.6413, lon: -73.7781, name: 'New York' },
+        dubai: { lat: 25.2532, lon: 55.3657, name: 'Dubai' },
+      };
+      const center = regions[options.region] || regions.bengaluru;
+      const providers = [
+        { name: 'adsb.lol', url: 'https://api.adsb.lol/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/180' },
+        { name: 'adsb.fi', url: 'https://opendata.adsb.fi/api/v3/lat/' + center.lat + '/lon/' + center.lon + '/dist/180' },
+      ];
+      const failures = [];
+      for (const p of providers) {
+        try {
+          const data = await retrieve(p.url, 60);
+          if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft payload');
+          const now = Number(data.now) > 1e12 ? Number(data.now) / 1000 : Number(data.now) || Date.now() / 1000;
+          const records = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number(a.seen_pos ?? 0) <= 120).slice(0, 200).map(a => ({
+            id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
+            lat: a.lat, lon: a.lon, source: p.name, observedAt: when((now - Number(a.seen_pos || 0)) * 1000),
+            description: [a.t || 'Aircraft', a.r || null].filter(Boolean).join(' · '),
+            altitudeFeet: Number.isFinite(a.alt_baro) ? a.alt_baro : null,
+            speedKnots: Number.isFinite(a.gs) ? a.gs : null,
+            heading: Number.isFinite(a.track) ? a.track : null,
+            ageSeconds: Math.round(Number(a.seen_pos || 0)), url: null,
+          }));
+          return { success: true, source, provider: p.name, retrievedAt: new Date().toISOString(),
+            refreshSeconds: 60, count: records.length, records, region: center.name,
+            coverage: 'Public receiver coverage, not guaranteed complete',
+            attribution: 'Volunteer receiver data; provider terms apply' };
+        } catch (error) { failures.push(p.name + ': ' + error.message); }
+      }
+      throw new Error(failures.join('; '));
     }
     if (source === 'weather') {
-      if (!process.env.OPENWEATHERMAP_API_KEY) {
-        return { success: false, source, error: 'OPENWEATHERMAP_API_KEY is not configured', status: 503 };
+      const key = process.env.OPENWEATHERMAP_API_KEY;
+      if (key) {
+        try {
+          const url = 'https://api.openweathermap.org/data/2.5/weather?lat=12.9716&lon=77.5946&units=metric&appid=' + encodeURIComponent(key);
+          const data = await retrieve(url, 300);
+          if (!Number.isFinite(data.main?.temp)) throw new Error('Invalid OpenWeather payload');
+          return { success: true, source, provider: 'OpenWeather', count: 1, refreshSeconds: 300,
+            retrievedAt: new Date().toISOString(), records: [{
+              id: 'bengaluru', title: 'Bengaluru current weather',
+              lat: data.coord?.lat ?? 12.9716, lon: data.coord?.lon ?? 77.5946,
+              observedAt: when(data.dt * 1000), source: 'OpenWeather',
+              temperatureC: data.main.temp, humidity: data.main.humidity,
+              windKmh: Number.isFinite(data.wind?.speed) ? data.wind.speed * 3.6 : null,
+              description: data.weather?.[0]?.description || 'Weather',
+              url: 'https://openweathermap.org/',
+            }] };
+        } catch { /* Fall through to the independent public forecast source. */ }
       }
-      const url = 'https://api.openweathermap.org/data/2.5/weather?lat=12.9716&lon=77.5946&units=metric&appid=' +
-        encodeURIComponent(process.env.OPENWEATHERMAP_API_KEY);
-      const data = await retrieve(url, interval);
-      if (!Number.isFinite(data.main?.temp)) throw new Error('Invalid OpenWeather payload');
-      return ok(source, data, [{
-        id: 'weather-bengaluru', title: 'Bengaluru current weather',
-        lat: data.coord?.lat ?? 12.9716, lon: data.coord?.lon ?? 77.5946,
-        observedAt: data.dt ? when(data.dt * 1000) : null, source: 'OpenWeather',
-        url: 'https://openweathermap.org/', description: data.main.temp + '°C · ' +
-          (data.weather?.[0]?.description || 'Conditions unknown') +
-          ' · humidity ' + (data.main.humidity ?? 'unknown') + '%',
-      }], interval);
+      const data = await retrieve('https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=12.9716&lon=77.5946', 300);
+      const sample = data.properties?.timeseries?.[0];
+      const details = sample?.data?.instant?.details;
+      if (!Number.isFinite(details?.air_temperature)) throw new Error('MET Norway data unavailable');
+      return { success: true, source, provider: 'MET Norway Locationforecast', count: 1,
+        refreshSeconds: 300, retrievedAt: new Date().toISOString(),
+        coverage: 'Forecast model estimates, not direct sensor observations',
+        attribution: 'Weather data from MET Norway — met.no',
+        records: [{ id: 'bengaluru', title: 'Bengaluru forecast conditions',
+          lat: 12.9716, lon: 77.5946, observedAt: when(sample.time),
+          source: 'MET Norway', temperatureC: details.air_temperature,
+          humidity: details.relative_humidity, windKmh: details.wind_speed * 3.6,
+          description: 'Current forecast estimate (model output)',
+          url: 'https://www.met.no/' }] };
     }
     if (source === 'news') {
       if (!process.env.NEWSAPI_KEY) {
