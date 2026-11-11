@@ -6,7 +6,7 @@ const SOURCES = [
   { id: 'earthquakes', label: 'Earthquakes', refresh: 90000 },
   { id: 'events', label: 'Natural events', refresh: 300000 },
   { id: 'flights', label: 'Regional flights', refresh: 120000 },
-  { id: 'weather', label: 'Bengaluru weather', refresh: 300000 },
+  { id: 'weather', label: 'Weather (Bengaluru point)', refresh: 600000 },
   { id: 'news', label: 'News headlines', refresh: 600000 },
 ];
 const DATE = value => { try { return value ? new Date(value).toLocaleString() : 'Not supplied'; } catch { return 'Not supplied'; } };
@@ -49,6 +49,10 @@ export default function LiveDataViewer({ initialSource = 'flights' }) {
           onClick={() => setSource(s.id)}
           className={'text-xs rounded px-3 py-2 border ' + (source === s.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200')}>{s.label}</button>)}
       </div>
+      {source==='weather'&&<p className="text-xs rounded p-3 bg-sky-50 text-slate-700 border border-sky-100">
+        The dashboard weather tab shows one clearly labelled Bengaluru point as an example.
+        {' '}<a className="text-sky-700 underline font-semibold" href="/weather">Search weather worldwide by city, state, country or coordinates</a>.
+      </p>}
       {state.loading && <p className="text-sm text-slate-600" role="status">Contacting provider…</p>}
       {state.error && <p className="rounded bg-amber-50 text-amber-950 p-4 text-sm" role="alert">Feed unavailable: {state.error}. No substitute data is displayed.</p>}
       {state.result && <>
