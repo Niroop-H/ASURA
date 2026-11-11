@@ -85,7 +85,7 @@ async function cameraRecords(question){
  const london=/\b(london|united kingdom|uk|england|tfl)\b/.test(lower);
  const california=/\b(california|usa|united states|caltrans|san francisco|oakland|sacramento)\b/.test(lower);
  if(india&&!california&&!london)return {records:[],provider:'Public camera directories',
-  note:'No authorized Indian live CCTV operator feed is connected. Windy Webcams (if configured) is a directory, not a continuous-video analysis source.'};
+  note:'No authorized Indian public CCTV or live video provider is connected in ASURA. Do not infer any Windy Webcams coverage unless an authenticated Windy result was actually retrieved.'};
  const providers=california?['caltrans']:london?['tfl']:['caltrans','tfl'];
  const results=await Promise.allSettled(providers.map(async provider=>
   provider==='caltrans'?await getCaltransCatalog():await getTflCatalog()));
