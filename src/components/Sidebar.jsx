@@ -19,6 +19,7 @@ import {
   X,
   Radio,
   Satellite,
+  Globe,
   Video,
   Search,
   ExternalLink
@@ -33,6 +34,7 @@ const NAV_LINKS = [
   { href: '/flights', label: 'Live Flight Explorer', icon: Plane },
   { href: '/airports', label: 'All Airports & Boards', icon: Building2 },
   { href: '/satellite', label: 'Satellite Imagery', icon: Satellite },
+  { href: '/globe', label: 'Cesium 3D Globe', icon: Globe },
   { href: '/cameras', label: 'Public Camera Feeds', icon: Video },
   { href: '/sources', label: 'Source Registry', icon: Database },
   { href: '/keys', label: 'API Key Holders', icon: Key },
