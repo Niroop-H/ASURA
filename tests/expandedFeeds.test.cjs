@@ -133,3 +133,17 @@ test('verified content is not operational authorization and raw payload has an i
  assert.ok(new Date(r.checkedAt).getTime()>=new Date(r.status.pullStartedAt).getTime());
  assert.ok(r.records.every(x=>x.licensing&&x.retrievedAt&&x.sourceUrl));
 });
+
+
+test('FCDO live GOV.UK schema uses base_path when root web_url is absent',async()=>{
+ const {parseOperationalFixture}=await loader;
+ const body=JSON.stringify({schema_name:'travel_advice',document_type:'travel_advice',
+  title:'India travel advice',base_path:'/foreign-travel-advice/india',
+  public_updated_at:'2026-11-12T07:00:00Z',
+  description:'Published travel guidance'});
+ const result=parseOperationalFixture('fcdo_travel',body);
+ assert.equal(result.records[0].url,'https://www.gov.uk/foreign-travel-advice/india');
+ assert.equal(result.records[0].observedAt,'2026-11-12T07:00:00.000Z');
+ assert.throws(()=>parseOperationalFixture('fcdo_travel',body.replace('/foreign-travel-advice/india','//malicious.example/')),
+  /canonical travel advice URL invalid/);
+});
