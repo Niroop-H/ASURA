@@ -4,9 +4,10 @@ import {getCaltransCatalog,getTflCatalog} from '@/lib/publicCameras';
 import {searchAirports} from '@/lib/airports';
 import {identifyAirport} from '@/lib/aviationVerification';
 import {PUBLIC_INTELLIGENCE_SOURCES,getPublicIntelligence} from '@/lib/publicIntelligence';
+import {OPERATIONAL_SOURCE_IDS,getOperationalSource} from '@/lib/operationalFeeds';
 
 export const CONTEXT_SOURCES=['news','weather','flights','cameras','airports','earthquakes','events','search',
- ...PUBLIC_INTELLIGENCE_SOURCES];
+ ...PUBLIC_INTELLIGENCE_SOURCES,...OPERATIONAL_SOURCE_IDS];
 const trimmed=(v,n=240)=>String(v||'').replace(/\s+/g,' ').slice(0,n);
 
 const PLACES=[
@@ -68,7 +69,14 @@ const intent={
  cyber:/\b(cve-\d{4}-\d{4,8}|cisa|known exploited vulnerabilit|kev catalog|latest vulnerabilities|cyber advisories)\b/i,
  space:/\b(iss|international space station|tiangong|orbital elements|celestrak|tle)\b/i,
  business:/\b(gleif|lei|legal entity identifier|registered company|company registry|corporate registration)\b/i,
- reference:/\b(wikidata|knowledge base entity|reference identifier)\b/i
+ reference:/\b(wikidata|knowledge base entity|reference identifier)\b/i,
+ faa_nas:/\b(?:faa nas|national airspace system|us airport delays|faa airport status|airport ground delay|airport ground stops?)\b/i,
+ faa_tfr:/\b(?:faa tfr|temporary flight restrictions?|tfr (?:list|notices?)|airspace restrictions?)\b/i,
+ nws_alerts:/\b(?:nws alerts?|noaa alerts?|weather (?:warnings?|alerts?|advisories)|storm warnings?|active weather advisories)\b/i,
+ fema_disasters:/\b(?:fema|federal disaster declarations?|declared disasters?)\b/i,
+ cisa_ics:/\b(?:ics advisories|industrial control system advisories|ot cyber advisories|cisa ics)\b/i,
+ nrc_events:/\b(?:nrc events?|nuclear regulatory commission (?:daily|event)|nuclear event notification reports?)\b/i,
+ imf_portwatch:/\b(?:portwatch|imf maritime datasets?|imf port data catalogue)\b/i
 };
 const followup=/^(?:what about|how about|and(?:\s+what about)?|same for|also for|what if)\b/i;
 export function selectAgentSources(question,mode,sources,history=[]){
@@ -214,6 +222,23 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
  const sources=[...new Set(sourceNames.filter(s=>CONTEXT_SOURCES.includes(s)))].slice(0,7);
  const tasks=sources.map(async source=>{
   try{
+   if(OPERATIONAL_SOURCE_IDS.includes(source)){
+    const operational=await getOperationalSource(source,question);
+    if(!operational.success)throw new Error(operational.status?.reason||'Public source unreachable');
+    return {source,success:true,provider:operational.provider,
+     records:operational.records,checkedAt:operational.checkedAt,
+     sourceTime:operational.status.sourceTime,contentFreshness:operational.status.content,
+     transportStatus:operational.status.transport,
+     sourceCount:operational.status.sourceCount,
+     evidenceHash:operational.sha256,
+     note:operational.status.notes+
+      ' · Transport: '+operational.status.transport+
+      ' · Content: '+operational.status.content+
+      ' · Publication time: '+(operational.status.sourceTime||'unverified')+
+      ' · Use for operational claims: '+operational.status.usableForOperationalClaims,
+     freshnessForOperationalClaims:operational.status.usableForOperationalClaims,
+     scope:operational.status.scope};
+   }
    if(PUBLIC_INTELLIGENCE_SOURCES.includes(source))
     return {source,success:true,...await getPublicIntelligence(source,question)};
    if(source==='cameras')return {source,success:true,...await cameraRecords(question)};
@@ -239,12 +264,18 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
  const responses=await Promise.all(tasks);
  return {records:responses.flatMap(r=>r.success?r.records:[]).slice(0,45),
   statuses:responses.map(({source,success,error,provider,note,providerCount,totalCatalog,
-    providerTime,observationType,providerErrors,sourceStatuses,radiusNm,sourceAgeLimitSeconds})=>
+    providerTime,observationType,providerErrors,sourceStatuses,radiusNm,sourceAgeLimitSeconds,
+    sourceTime,contentFreshness,transportStatus,sourceCount,evidenceHash,
+    freshnessForOperationalClaims,scope})=>
    ({source,success,error:error||null,provider:provider||null,note:note||null,
     providerTime:providerTime||null,observationType:observationType||null,
     providerErrors:providerErrors||null,sourceStatuses:sourceStatuses||null,
     radiusNm:radiusNm||null,sourceAgeLimitSeconds:sourceAgeLimitSeconds||null,
-    providerCount:providerCount??totalCatalog??null})),
+    providerCount:providerCount??totalCatalog??sourceCount??null,
+    sourceTime:sourceTime||null,contentFreshness:contentFreshness||null,
+    transportStatus:transportStatus||null,evidenceHash:evidenceHash||null,
+    freshnessForOperationalClaims:freshnessForOperationalClaims===true,
+    scope:scope||null})),
   checkedAt:new Date().toISOString()};
 }
 /** Explicit user-initiated public snapshot inspection, not continuous CCTV analysis. */
