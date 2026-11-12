@@ -3,7 +3,7 @@ _Updated 12 November 2026. A connector is not an operationally approved observat
 
 ## Verified code presence versus actual access
 
-The on-demand public-source assurance API registers **11** source contracts. Those contracts describe checks; they do not guarantee upstream availability. Some publishers can reject datacenter requests, throttle, change schemas, or omit timestamps.
+The on-demand public-source assurance API registers **17** source contracts. Those contracts describe checks; they do not guarantee upstream availability. Some publishers can reject datacenter requests, throttle, change schemas, or omit timestamps.
 
 | Source ID | What code actually retrieves | Scope / important limitation | Release posture |
 |---|---|---|---|
@@ -18,8 +18,26 @@ The on-demand public-source assurance API registers **11** source contracts. Tho
 | nasdaq_halts | Nasdaq trade-halt RSS | **BLOCKED by default** until authorized acceptance of provider terms; no market prices | New; licence gate |
 | federal_register | Federal Register API published documents | Publication data, not proof a law is effective or binding | New; CI-validated parser |
 | fcdo_travel | GOV.UK Content API travel-advice page | One named supported country; pilot check uses India | New; CI-validated parser |
+| gdacs_alerts | GDACS published 24-hour multihazard RSS | Published alerts, not independently certified local warnings | Read-only integration; runtime checks required |
+| uscg_lnm | USCG Local Notice to Mariners GovDelivery RSS | Only a single district's published notices; not a worldwide navigation service | Read-only integration; runtime checks required |
+| nasa_donki | NASA DONKI geomagnetic storm events | Interpreted event reports; NASA DEMO_KEY subject to strict public quota | Read-only integration; runtime checks required |
+| treasury_debt | US Treasury debt-to-the-penny API | Published accounting balances, exact USD decimal strings; not tick data | Read-only integration; runtime checks required |
+| dvids_news | DVIDS public media news search | Official published releases; requires registered DVIDS_API_KEY | BLOCKED without key |
+| imf_portwatch_daily | IMF PortWatch ArcGIS Daily_Ports_Data table | Small delayed port-level sample only; no AIS tracks or worldwide aggregate | BLOCKED pending written reuse permission |
 
-All 11 sources are available to the **readiness probe**. The AI source selector can request sources by name, but the assistant must show publisher versus retrieval timestamps and evidence links rather than assert they are verified in production.
+All 17 sources are available to the **readiness probe**. The AI source selector can request sources by name, but the assistant must show publisher versus retrieval timestamps and evidence links rather than assert they are verified in production.
+
+## Verification automation (no deployment required)
+
+- GitHub workflow `.github/workflows/public-source-smoke.yml` probes 14 keyless public-source endpoints twice daily (02:19 and 14:19 UTC), with a manual trigger as well.
+- The runner stores the sampled HTTP/schema/freshness statuses and raw-response hashes in `artifacts/public-source-smoke.json`, uploaded as a GitHub Actions artifact with 14-day retention. This is **temporary independent sampling**, not signed immutable storage or an SLA.
+- It never injects API keys into the browser or reports. Explicitly blocked sources (Nasdaq terms, DVIDS credential, IMF reuse approval) are not polled.
+- The canonical source list contains 17 contracts; a run returning no parseable public provider reports failure, while individual provider failures appear as DOWN with their reason.
+- Run locally with `node scripts/probe-public-sources.cjs` (Node 22+ with network access), or run the **Public-source external smoke observations** GitHub Actions workflow manually.
+- To register DVIDS, obtain a key at https://api.dvidshub.net/, add `DVIDS_API_KEY` to server-only environment secrets, and review the DVIDS API terms. Public media does not establish independent event truth.
+- To enable IMF daily observations, obtain documented permission for this application's systematic/commercial data reuse, then set `IMF_PORTWATCH_REUSE_AUTHORIZED=true` server-side. The default remains BLOCKED. Never confuse published delayed daily estimates with licensed vessel AIS.
+- Optional `NASA_API_KEY` avoids dependence on the shared DEMO_KEY quota for DONKI.
+- Local unit/fixture contract tests run using `npm run test:operational`, followed by `npm run build`. Neither is a real provider availability test.
 
 ## Immediate next acquisition packages
 
