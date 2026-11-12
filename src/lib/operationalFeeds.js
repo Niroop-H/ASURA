@@ -178,15 +178,33 @@ export function parseOperationalFixture(id,text,detail){
  return parse[id](text,detail);
 }
 const MAX_BYTES=2200000;
-async function boundedRead(url,{fetcher=fetch,timeoutMs=9000}={}){
+async function boundedRead(url,{fetcher=fetch,timeoutMs=9000,limitBytes=MAX_BYTES}={}){
  const r=await fetcher(url,{cache:'no-store',signal:AbortSignal.timeout(timeoutMs),
   headers:{'User-Agent':'ASURA (public data monitoring; research@mahquantum.tech)',
    Accept:'application/json,application/geo+json,application/rss+xml,application/xml,text/xml,*/*'}});
  if(!r?.ok)throw Error('Source HTTP '+(r?.status??'unknown'));
- if(Number(r.headers?.get('content-length')||0)>MAX_BYTES)throw Error('Source exceeds bounded payload limit');
- const body=await r.text();
- if(body.length>MAX_BYTES)throw Error('Source exceeds bounded payload limit');
- return body;
+ if(Number(r.headers?.get('content-length')||0)>limitBytes)throw Error('Source exceeds bounded payload limit');
+ // Stream and enforce the cap even when the provider omits Content-Length.
+ // Avoid buffering an unexpectedly huge official XML feed.
+ if(!r.body?.getReader){
+  const body=await r.text();
+  if(Buffer.byteLength(body,'utf8')>limitBytes)throw Error('Source exceeds bounded payload limit');
+  return body;
+ }
+ const reader=r.body.getReader(),chunks=[];
+ let used=0;
+ try{
+  while(true){
+   const {done,value}=await reader.read();
+   if(done)break;
+   used+=value.byteLength;
+   if(used>limitBytes)throw Error('Source exceeds bounded payload limit');
+   chunks.push(value);
+  }
+ }finally{reader.releaseLock();}
+ const bytes=new Uint8Array(used);let pos=0;
+ for(const part of chunks){bytes.set(part,pos);pos+=part.byteLength}
+ return new TextDecoder().decode(bytes);
 }
 export async function getOperationalSource(id,question='',opts={}){
  const definition=defFor(id);
@@ -199,7 +217,10 @@ export async function getOperationalSource(id,question='',opts={}){
    if(!state)throw Error('Please specify a US state for NWS active alerts (for example: California or Texas). No location assumed.');
    target='https://api.weather.gov/alerts/active?area='+state;requested=state;
   }
-  const text=await boundedRead(target,opts);
+  // Official CISA ICS RSS currently publishes ~6 MB of 30 full summaries;
+  // the higher cap is restricted to this allowlisted source, not arbitrary URLs.
+  const text=await boundedRead(target,{...opts,
+   limitBytes:id==='cisa_ics'?8000000:MAX_BYTES});
   const parsed=parseOperationalFixture(id,text,requested);
   const content=freshnessStatus(parsed.sourceTime,checkedAt,definition.maxContentAgeMinutes);
   const status={
