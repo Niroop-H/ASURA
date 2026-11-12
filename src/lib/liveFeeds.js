@@ -14,9 +14,9 @@ const normalizeUrl = value => {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null; }
   catch { return null; }
 };
-async function retrieve(url, interval) {
+async function retrieve(url, interval, {fresh=false}={}) {
   const response = await fetch(url, {
-    next: { revalidate: interval },
+    ...(fresh ? {cache:'no-store'} : {next:{revalidate:interval}}),
     signal: AbortSignal.timeout(10000),
     headers: { Accept: 'application/json', 'User-Agent': 'ASURA/1.0 (public observation viewer; research@mahquantum.tech)' },
   });
@@ -146,7 +146,9 @@ export async function getLiveSource(source, options = {}) {
       const failures = [];
       for (const p of providers) {
         try {
-          const data = await retrieve(p.url, 25);
+          // Aircraft positions cannot use Next.js ISR caching: if a cached snapshot
+          // is served later it fails freshness checks and leaves the map empty.
+          const data = await retrieve(p.url, 0, {fresh:true});
           if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft payload');
           const providedNow = Number(data.now);
           const now = providedNow > 1e12 ? providedNow / 1000 : providedNow;
@@ -182,6 +184,9 @@ export async function getLiveSource(source, options = {}) {
               distanceNm: Math.round(haversineNm(a.lat,a.lon)*10)/10,
               positionType:a.type||null,
               onGround:a.alt_baro === 'ground', url: null,
+              markerType:'aircraft',
+              // No ADS-B ground position is evidence of a completed landing.
+              flightStatusVerified:false,
               operationVerified:false,
             };
           });
@@ -193,7 +198,7 @@ export async function getLiveSource(source, options = {}) {
             providerTime: when(now*1000),
             observationType: 'receiver-observed aircraft positions (NOT arrivals or departures)',
             sourceAgeLimitSeconds: 90,
-            coverage: radius+' NM from selected map center ('+center.name+'); filtered to position fixes at most 90s old. Coverage is partial and does not confirm destination, landing or departures.',
+            coverage: radius+' NM from selected map center ('+center.name+'); only receiver-observed position fixes up to 90s old, not confirmed airport arrivals, routes or departures.',
             attribution: p.name === 'adsb.lol' ? 'Aircraft observations © adsb.lol contributors; ODbL 1.0' : 'Aircraft observations © adsb.fi contributors; non-commercial license' };
         } catch (error) { failures.push(p.name + ': ' + error.message); }
       }
@@ -282,19 +287,27 @@ export async function findLiveAircraft(mode, rawQuery) {
     return { success: false, status: 400, error: 'Search must contain a valid callsign, registration or six-digit ICAO hex address.' };
   }
   try {
-    const data = await retrieve('https://api.adsb.lol/v2/' + paths[mode] + '/' + encodeURIComponent(query), 60);
+    const data = await retrieve('https://api.adsb.lol/v2/' + paths[mode] + '/' + encodeURIComponent(query), 0, {fresh:true});
     if (!Array.isArray(data.ac)) throw new Error('Unexpected aircraft lookup response');
-    const now = Number(data.now) > 1e12 ? Number(data.now) / 1000 : Number(data.now) || Date.now() / 1000;
+    const value=Number(data.now),now=value>1e12?value/1000:value;
+    const wallClock=Date.now()/1000;
+    if(!Number.isFinite(now)||now<wallClock-120||now>wallClock+15)
+      throw new Error('Live aircraft search snapshot timestamp is too old or invalid');
     const records = data.ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon) &&
-      Number(a.seen_pos ?? 0) <= 120).slice(0, 25).map(a => ({
+      Math.abs(a.lat)<=90 && Math.abs(a.lon)<=180 &&
+      a.seen_pos!==null && a.seen_pos!==undefined &&
+      Number.isFinite(Number(a.seen_pos))&&Number(a.seen_pos)>=0&&Number(a.seen_pos)<=60&&
+      wallClock-(now-Number(a.seen_pos))<=90).slice(0, 25).map(a => ({
       id: String(a.hex || a.flight || ''), title: String(a.flight || a.r || a.hex || 'Aircraft').trim(),
       lat: a.lat, lon: a.lon, source: 'adsb.lol',
       registration: a.r || null, aircraftType: a.t || null, icao24: a.hex || null,
       altitudeFeet: Number.isFinite(a.alt_baro) ? a.alt_baro : null,
       speedKnots: Number.isFinite(a.gs) ? a.gs : null,
       heading: Number.isFinite(a.track) ? a.track : null,
-      ageSeconds: Math.round(Number(a.seen_pos || 0)),
-      observedAt: when((now - Number(a.seen_pos || 0)) * 1000),
+      ageSeconds: Math.round(wallClock-(now-Number(a.seen_pos))),
+      positionAgeSeconds: Math.round(wallClock-(now-Number(a.seen_pos))),
+      observedAt: when((now - Number(a.seen_pos)) * 1000),
+      onGround:a.alt_baro==='ground',markerType:'aircraft',flightStatusVerified:false,
     }));
     return { success: true, provider: 'adsb.lol', retrievedAt: new Date().toISOString(),
       mode, query, records, count: records.length,
