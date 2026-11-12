@@ -277,6 +277,7 @@ function nasaDonki(text){
  const records=rows.slice(0,12).map((x,i)=>{
   const time=iso(x.startTime);
   const kp=(Array.isArray(x.allKpIndex)?x.allKpIndex:[])
+   .filter(y=>y&&y.kpIndex!==null&&y.kpIndex!==undefined&&y.kpIndex!=='')
    .map(y=>Number(y.kpIndex)).filter(n=>Number.isFinite(n)&&n>=0&&n<=9);
   const maxKp=kp.length?Math.max(...kp):null;
   return record('nasa_donki','nasa_donki',
@@ -334,6 +335,8 @@ function imfPortDaily(text){
   const a=x?.attributes||{};
   const date=typeof a.date==='string'&&/^\d{4}-\d\d-\d\d$/.test(a.date)?
    iso(a.date+'T00:00:00Z'):typeof a.date==='number'?iso(a.date):null;
+  if([a.portcalls,a.import,a.export].some(v=>v===null||v===undefined||v===''))
+   throw Error('IMF daily port numeric observation missing');
   const calls=Number(a.portcalls),imports=Number(a.import),exports=Number(a.export);
   if(!date||typeof a.portname!=='string'||![calls,imports,exports].every(n=>Number.isFinite(n)&&n>=0))
    throw Error('IMF daily port estimate missing valid date, port or numerical observations');
