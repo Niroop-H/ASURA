@@ -82,3 +82,13 @@ All 17 sources are available to the **readiness probe**. The AI source selector 
 4. For Nasdaq, leave NASDAQ_HALTS_TERMS_ACCEPTED=false until an authorized administrator has accepted the applicable published feed terms. The source will display BLOCKED and emit no records.
 5. Verify individual raw hashes, official URLs and publication clocks. Store a timestamped evidence pack outside ephemeral serverless memory.
 6. Require separate legal, safety, security and accuracy sign-off before any operational-use label or automated decision is enabled.
+
+## Real-provider smoke monitoring (code-only, no production deployment)
+
+The automated `.github/workflows/public-source-smoke.yml` GitHub Actions check executes `scripts/probe-public-feeds.mjs` four times daily (scheduled GitHub runs are best-effort, not a guaranteed SLA) and on manual dispatch. This lightweight Node runner requests 14 previously allowlisted public endpoints in bounded groups of three with 10-second per-source timeouts. Trading-halt, DVIDS, and PortWatch commercial reuse/credential-gated integrations are intentionally excluded.
+
+Each report stores a transport state, content freshness, reason, retrieval time, elapsed milliseconds, sample count and two checksums. It does **not** store records or credentialed provider responses. Workflow artifacts are retained for 30 days, subject to GitHub storage policies. Success of the workflow means the monitoring script completed; an individual source may still be DOWN or STALE, and the exact source-level result must be inspected.
+
+Run locally (no credentials needed): `node scripts/probe-public-feeds.mjs --sources=noaa_swpc_kp,federal_register --output=artifacts/manual-public-probe.json`. Invalid source IDs and paths fail immediately. This command deliberately does not promote any provider to operational-accepted status.
+
+**Next engineering acceptance step:** review report artifacts across a meaningful observation window, check provider terms and real source schemas, then establish a permanent authorized evidence store, access controls, alert thresholds and a signed acceptance decision. No GitHub workflow is a substitute for those controls.
