@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'src/lib/operationalFeeds.js'
+      - 'scripts/probe-public-feeds.mjs'
       - 'src/lib/agentContext.js'
       - 'src/lib/intelligenceCatalog.js'
       - 'src/app/api/agent/route.js'
@@ -29,5 +30,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Contract tests
         run: npm run test:operational
+      - name: Syntax-check smoke collector
+        run: node --check scripts/probe-public-feeds.mjs
       - name: Build
         run: npm run build
