@@ -25,6 +25,8 @@ const noHtml=s=>clean(decodeXml(s).replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' '
 const xmlField=(s,tag)=>decodeXml(new RegExp('<'+tag+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+tag+'>','i').exec(s)?.[1]||'');
 const xmlBlocks=(s,tag)=>[...String(s).matchAll(new RegExp('<'+tag+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+tag+'>','gi'))].map(m=>m[1]);
 const iso=s=>{
+ // new Date(null) and new Date('') can falsely manufacture the Unix epoch.
+ if(s===null||s===undefined||typeof s==='string'&&!s.trim())return null;
  const d=new Date(s);
  return Number.isFinite(d.getTime())?d.toISOString():null;
 };
@@ -190,13 +192,13 @@ export async function getOperationalSource(id,question='',opts={}){
  const definition=defFor(id);
  if(!definition)throw Error('Unknown source ID');
  let target=definition.url,requested='California (health sample)';
- if(id==='nws_alerts'&&opts.healthProbe!==true){
-  const state=requestedState(question);
-  if(!state)throw Error('Please specify a US state for NWS active alerts (for example: California or Texas). No location assumed.');
-  target='https://api.weather.gov/alerts/active?area='+state;requested=state;
- }
  const checkedAt=new Date().toISOString();
  try{
+  if(id==='nws_alerts'&&opts.healthProbe!==true){
+   const state=requestedState(question);
+   if(!state)throw Error('Please specify a US state for NWS active alerts (for example: California or Texas). No location assumed.');
+   target='https://api.weather.gov/alerts/active?area='+state;requested=state;
+  }
   const text=await boundedRead(target,opts);
   const parsed=parseOperationalFixture(id,text,requested);
   const content=freshnessStatus(parsed.sourceTime,checkedAt,definition.maxContentAgeMinutes);
