@@ -19,7 +19,7 @@ const DEFAULT_SOURCES = [
     rateLimit: null,
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_opensky',
@@ -34,7 +34,7 @@ const DEFAULT_SOURCES = [
     rateLimit: '10 req/10s',
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_newsapi',
@@ -50,7 +50,7 @@ const DEFAULT_SOURCES = [
     rateLimit: '100/day',
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_openweather',
@@ -66,7 +66,7 @@ const DEFAULT_SOURCES = [
     rateLimit: '60/min',
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_nasa_eonet',
@@ -81,7 +81,7 @@ const DEFAULT_SOURCES = [
     rateLimit: null,
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_aviationstack',
@@ -97,7 +97,7 @@ const DEFAULT_SOURCES = [
     rateLimit: '100/month',
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_google_search',
@@ -113,7 +113,7 @@ const DEFAULT_SOURCES = [
     rateLimit: '100/day',
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
   {
     id: 'src_rss_generic',
@@ -128,7 +128,7 @@ const DEFAULT_SOURCES = [
     rateLimit: 'Configurable',
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   },
 ];
 
@@ -163,7 +163,7 @@ export function addSource(data) {
     rateLimit: data.rateLimit || null,
     lastCheck: null,
     lastError: null,
-    status: 'ready',
+    status: 'unverified',
   };
   sources.push(newSource);
   return newSource;
