@@ -3,8 +3,10 @@ import {searchWorldwideLocations} from '@/lib/weatherService';
 import {getCaltransCatalog,getTflCatalog} from '@/lib/publicCameras';
 import {searchAirports} from '@/lib/airports';
 import {identifyAirport} from '@/lib/aviationVerification';
+import {PUBLIC_INTELLIGENCE_SOURCES,getPublicIntelligence} from '@/lib/publicIntelligence';
 
-export const CONTEXT_SOURCES=['news','weather','flights','cameras','airports','earthquakes','events','search'];
+export const CONTEXT_SOURCES=['news','weather','flights','cameras','airports','earthquakes','events','search',
+ ...PUBLIC_INTELLIGENCE_SOURCES];
 const trimmed=(v,n=240)=>String(v||'').replace(/\s+/g,' ').slice(0,n);
 
 const PLACES=[
@@ -53,25 +55,62 @@ async function weatherLocation(question){
 
 const validUrl=v=>{try{let u=new URL(v);return u.protocol==='https:'?u.href:null;}catch{return null;}};
 const intent={
- news:/\b(news|headlines|breaking|reported|article|journalism|politics|latest updates)\b/i,
- weather:/\b(weather|temperature|humidity|rain|wind|climate|forecast)\b/i,
+ news:/\b(news|headlines|breaking|reported|article|journalism|latest updates)\b/i,
+ weather:/\b(weather|temperature|humidity|rain|wind|forecast|degrees|climate)\b/i,
  flights:/\b(flights?|aircraft|airplanes?|airspace|ads-?b|aviation|takeoff|landing|airline)\b/i,
  cameras:/\b(camera|cameras|cctv|webcam|traffic cam|road footage|public feed|live stream)\b/i,
  airports:/\b(airport|airfield|aerodrome|runway|iata|icao)\b/i,
  earthquakes:/\b(earthquake|seismic|tremor|magnitude|aftershock)\b/i,
  events:/\b(wildfire|forest fire|volcano|volcanic|natural disaster|landslide|hurricane|floods?)\b/i,
  search:/\b(search the web|web search|look online|google search|browse the web)\b/i,
+ economy:/\b(gdp|gross domestic product|inflation|economic growth|unemployment|world bank|wdi|population|life expectancy|military expenditure|defen[sc]e spending)\b/i,
+ fx:/\b(currency|exchange rate|convert money|forex|usd\s+(?:to|in)\s+inr|inr\s+(?:to|in)\s+usd|eur\s+(?:to|in)\s+usd|gbp\s+(?:to|in)\s+inr)\b/i,
+ cyber:/\b(cve-\d{4}-\d{4,8}|cisa|known exploited vulnerabilit|kev catalog|latest vulnerabilities|cyber advisories)\b/i,
+ space:/\b(iss|international space station|tiangong|orbital elements|celestrak|tle)\b/i,
+ business:/\b(gleif|lei|legal entity identifier|registered company|company registry|corporate registration)\b/i,
+ reference:/\b(wikidata|knowledge base entity|reference identifier)\b/i
 };
-export function selectAgentSources(question,mode,sources){
+const followup=/^(?:what about|how about|and(?:\s+what about)?|same for|also for|what if)\b/i;
+export function selectAgentSources(question,mode,sources,history=[]){
  if(mode==='general')return [];
+ const matched=CONTEXT_SOURCES.filter(source=>intent[source]?.test(question));
+ const chosen=[...new Set((sources||[]).filter(x=>CONTEXT_SOURCES.includes(x)))];
  if(mode==='live'){
-  return [...new Set((sources||[]).filter(s=>CONTEXT_SOURCES.includes(s)))].slice(0,5);
+  // A user asks about one subject, so don't fetch five unrelated feeds just
+  // because they were checked in the settings panel. Keep the chosen list for
+  // explicit multi-domain "everything connected" investigations.
+  const relevant=matched.filter(x=>chosen.includes(x));
+  return (relevant.length?relevant:chosen).slice(0,7);
  }
- const active=CONTEXT_SOURCES.filter(source=>intent[source]?.test(question));
- if(!active.length&&/\b(current events|what('s| is) happening|recent developments|latest news)\b/i.test(question))
+ if(matched.length)return matched.slice(0,7);
+ if(followup.test(String(question).trim())){
+  const prior=[...history].reverse().find(x=>x.role==='user'&&x.content);
+  if(prior)return CONTEXT_SOURCES.filter(source=>intent[source]?.test(prior.content)).slice(0,5);
+ }
+ if(/\b(current events|what('s| is) happening|recent developments|latest news)\b/i.test(question))
   return ['news','events'];
- return active.slice(0,5);
+ return [];
 }
+export function resolveFollowupQuestion(question,history=[]){
+ if(!followup.test(String(question).trim()))return question;
+ const previous=[...history].reverse().find(x=>x.role==='user'&&x.content);
+ if(!previous)return question;
+ if(intent.weather.test(previous.content)){
+  const place=question.match(/^(?:what about|how about|same for|also for|and)\s+(.+?)[?.!]*$/i)?.[1];
+  if(place)return 'weather in '+place.trim();
+ }
+ if(intent.economy.test(previous.content)){
+  const place=question.match(/^(?:what about|how about|same for|also for|and)\s+(.+?)[?.!]*$/i)?.[1];
+  if(place){
+   const t=indirectMetric(previous.content);
+   if(t)return t+' of '+place.trim();
+  }
+ }
+ return question;
+}
+const indirectMetric=question=>[
+ 'GDP per capita','GDP','inflation','unemployment','population','life expectancy',
+ 'military expenditure'].find(x=>new RegExp('\\b'+x.replace(/\s+/g,'\\s+')+'\\b','i').test(question));
 const recordFrom=(record,source,provider,retrievedAt,index)=>{
  const fields=[
   record.registration?'Registration: '+trimmed(record.registration,40):'',
@@ -170,9 +209,13 @@ async function webRecords(question){
  })),provider:'Google Programmable Search',note:'Web search indexes may be delayed; publication dates are not necessarily available.'};
 }
 export async function assembleAgentContext(question,sourceNames,{region='bengaluru',weatherPoint=null}={}){
- const sources=[...new Set(sourceNames.filter(s=>CONTEXT_SOURCES.includes(s)))].slice(0,5);
+ // No fictitious "universal sensor": each enabled connector performs its own
+ // bounded, rate-limited public read and returns its own coverage/status.
+ const sources=[...new Set(sourceNames.filter(s=>CONTEXT_SOURCES.includes(s)))].slice(0,7);
  const tasks=sources.map(async source=>{
   try{
+   if(PUBLIC_INTELLIGENCE_SOURCES.includes(source))
+    return {source,success:true,...await getPublicIntelligence(source,question)};
    if(source==='cameras')return {source,success:true,...await cameraRecords(question)};
    if(source==='airports')return {source,success:true,...await airportRecords(question)};
    if(source==='search')return {source,success:true,...await webRecords(question)};
@@ -194,7 +237,7 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
   }catch(e){return {source,success:false,error:trimmed(e.message,200)};}
  });
  const responses=await Promise.all(tasks);
- return {records:responses.flatMap(r=>r.success?r.records:[]).slice(0,38),
+ return {records:responses.flatMap(r=>r.success?r.records:[]).slice(0,45),
   statuses:responses.map(({source,success,error,provider,note,providerCount,totalCatalog,
     providerTime,observationType,providerErrors,sourceStatuses,radiusNm,sourceAgeLimitSeconds})=>
    ({source,success,error:error||null,provider:provider||null,note:note||null,
