@@ -231,8 +231,10 @@ export async function getOperationalSource(id,question='',opts={}){
    scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
    maxContentAgeMinutes:definition.maxContentAgeMinutes,
    licensing:definition.licenseStatus,provider:definition.attribution,
-   // Discovery-only catalogues never count as validated observations.
-   usableForOperationalClaims:id!=='imf_portwatch'&&content.state==='fresh'
+   // Fresh retrieval does not grant operational approval, legal licence or
+   // validation. Only a documented human release board can change this flag.
+   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch',
+   usableForOperationalClaims:false
   };
   const records=parsed.records.map((x,i)=>({
    ...x,id:id+':'+(i+1),retrievedAt:checkedAt,
@@ -247,7 +249,7 @@ export async function getOperationalSource(id,question='',opts={}){
     checkedAt,retrievedAt:null,sourceTime:null,
     reason:clean(e.message,170),scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
     maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
-    usableForOperationalClaims:false}};
+    sourceItemFresh:false,usableForOperationalClaims:false}};
  }
 }
 export async function probeOperationalSources(selected=OPERATIONAL_SOURCE_IDS,opts={}){
@@ -260,6 +262,7 @@ export async function probeOperationalSources(selected=OPERATIONAL_SOURCE_IDS,op
    source:x.source,checkedAt:x.checkedAt,status:x.status,
    records:x.records,sha256:x.sha256||null
   })),
-  readyCount:results.filter(x=>x.status?.usableForOperationalClaims).length,
+  freshItemCount:results.filter(x=>x.status?.sourceItemFresh).length,
+  readyCount:0, // operational acceptance is never inferred from live probing
   checkCount:results.length,checksNotCertification:true};
 }
