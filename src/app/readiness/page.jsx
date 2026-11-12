@@ -65,7 +65,7 @@ export default function ReadinessPage(){
      <span className={'text-xs rounded border px-2 py-1 '+
       (s.transport==='ok'&&s.content==='fresh'?'bg-emerald-50 text-emerald-800':
        s.transport==='down'?'bg-red-50 text-red-800':'bg-amber-50 text-amber-900')}>
-      {s.transport==='down'?'SOURCE DOWN':
+      {s.transport==='blocked'?'TERMS NOT ACCEPTED':s.transport==='down'?'SOURCE DOWN':
        s.content==='fresh'?'FRESH PUBLIC ITEM':s.content==='stale'?'CONTENT STALE':
        s.content==='invalid'?'INVALID TIME':'DATE UNVERIFIED'}
      </span>
@@ -79,6 +79,8 @@ export default function ReadinessPage(){
      Content threshold: {s.maxContentAgeMinutes} min</p>
     <p className="text-xs text-slate-600">{s.scope}</p>
     <p className="text-xs">Licence status: {s.licensing}</p>
+    {s.sourceUrl&&<p className="text-xs break-all">Source: <a className="underline" href={s.sourceUrl} target="_blank" rel="noreferrer">Official endpoint</a></p>}
+    {s.rawSha256&&<p className="text-[10px] font-mono break-all text-slate-500">Raw response SHA-256: {s.rawSha256}</p>}
     {s.sha256&&<p className="text-[10px] font-mono break-all text-slate-500">
      Snapshot SHA-256: {s.sha256}</p>}
     <p className="text-xs text-slate-500">Check is not an operational acceptance test.</p>
