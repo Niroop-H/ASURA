@@ -24,7 +24,8 @@ const readableDate=x=>{if(!x)return 'Not provided';const d=new Date(x);return Nu
 function SourceDetails({msg,onReview}){
  const records=Array.isArray(msg.records)?msg.records:[];
  const statuses=Array.isArray(msg.statuses)?msg.statuses:[];
- if(!records.length&&!statuses.length&&!msg.snapshotReviewed)return null;
+ if(!records.length&&!statuses.length&&!msg.snapshotReviewed&&
+    !(msg.webResearch?.sources||[]).length)return null;
  return <div className="mt-3 border-t pt-3 border-slate-200 space-y-3">
   <div className="flex flex-wrap gap-2">
    {statuses.map(s=><span key={s.source} title={[s.note,s.error,s.provider,
@@ -43,6 +44,15 @@ function SourceDetails({msg,onReview}){
    className="text-xs underline text-sky-700 inline-flex items-center gap-1">
    Open external airport arrivals/departures board <ExternalLink size={12}/>
   </a>}
+  {Array.isArray(msg.webResearch?.sources)&&msg.webResearch.sources.length>0&&
+   <div className="rounded border bg-white p-3 text-xs space-y-2">
+    <p className="font-semibold text-slate-700">Verified public browser-search sources</p>
+    {msg.webResearch.sources.map((entry,i)=>
+     <a key={entry.url+'-'+i} href={entry.url} target="_blank"
+      rel="noopener noreferrer" className="block underline text-sky-700 break-all">
+      {entry.title||entry.url} <ExternalLink size={11} className="inline"/>
+     </a>)}
+   </div>}
   {msg.snapshotReviewed&&<p className="text-xs text-amber-900 bg-amber-50 rounded p-2">
    Snapshot reviewed: {msg.snapshotReviewed.title}, downloaded {readableDate(msg.snapshotReviewed.checkedAt)}.
    Original capture time not verified. This is not continuous CCTV analysis.
@@ -195,6 +205,12 @@ export default function AgentWorkspace(){
     Check your server-side Groq key and model permissions in <Link className="underline" href="/keys">API Key Holders</Link>.
    </div>}
    <div className="flex-1 px-4 md:px-6 py-6 bg-slate-50 min-h-[380px] max-h-[68vh] overflow-y-auto space-y-5">
+    {linkedCamera&&health?.visionAvailable===false&&<p role="status"
+     className="rounded border border-amber-300 bg-amber-50 text-amber-950 p-3 text-xs">
+     Groq's larger-than-50B vision model (Muse Spark Open 816B) requires
+     preview access and is unavailable on this account. No smaller model
+     is substituted. General text chat and public-source research work independently.
+    </p>}
     {linkedCamera&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 space-y-3" aria-label="Selected public camera snapshot">
       <div className="flex flex-wrap gap-3 items-center justify-between">
        <div>
@@ -263,8 +279,9 @@ export default function AgentWorkspace(){
       {msg.error&&<p role="alert" className="bg-amber-50 text-amber-900 p-3 text-xs rounded border border-amber-100">{msg.error}</p>}
       {msg.role==='assistant'&&<div className="pt-1 flex flex-wrap gap-3 items-center">
        {msg.model&&<span className="text-[11px] text-slate-600 font-medium">Model: {msg.model}</span>}
-       {msg.webResearch?.requested&&<span className="text-[11px] text-sky-800">
-        Browser research {msg.webResearch.required?'required':'available'} · check cited URLs
+       {msg.webResearch?.requested&&<span className={'text-[11px] '+
+         (msg.webResearch.executedVerified?'text-emerald-800':'text-amber-800')}>
+        {msg.webResearch.executedVerified?'Public web tool executed':'Web tool offered; not verified'}
        </span>}
        {msg.generatedAt&&<span className="text-[11px] text-slate-400">{readableDate(msg.generatedAt)}</span>}
        {msg.content&&<button type="button" onClick={()=>copyAnswer(msg)}
