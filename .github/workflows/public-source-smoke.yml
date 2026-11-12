@@ -5,9 +5,10 @@ on:
     paths:
       - 'src/lib/operationalFeeds.js'
       - 'scripts/probe-public-sources.cjs'
+      - 'scripts/probe-public-feeds.mjs'
       - '.github/workflows/public-source-smoke.yml'
   schedule:
-    - cron: '19 2,14 * * *'
+    - cron: '19 2,8,14,20 * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,12 +27,15 @@ jobs:
         with:
           node-version: '22'
       - name: Observe public providers
-        run: node scripts/probe-public-sources.cjs
+        run: node scripts/probe-public-feeds.mjs
+        env:
+          NASDAQ_HALTS_TERMS_ACCEPTED: 'false'
+          IMF_PORTWATCH_REUSE_AUTHORIZED: 'false'
       - name: Retain public evidence (not a signed ledger)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: public-source-smoke-${{ github.run_id }}
-          path: artifacts/public-source-smoke.json
+          path: artifacts/source-smoke-report.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
