@@ -146,7 +146,7 @@ async function business(q){
    '; listed address: '+[addr.city,addr.country].filter(Boolean).join(', ')+
    '. LEI reference record does not verify ownership or solvency.',
    'https://search.gleif.org/#/record/'+encodeURIComponent(x.id),
-   d.meta?.goldenCopy?.publishDate||null,i,'company-registry'));
+   d.meta?.goldenCopy?.publishDate||null,i,'company-registry');
  });
  return {provider:'GLEIF',records,providerTime:d.meta?.goldenCopy?.publishDate||null,
   note:'Fuzzy entity matches; verify the legal entity name and jurisdiction.'};
