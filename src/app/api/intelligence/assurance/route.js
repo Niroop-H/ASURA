@@ -14,18 +14,17 @@ export async function GET(request){
    status:400,headers:{'Cache-Control':'no-store'}});
  try{
   const now=Date.now();
+  const reply=(report,mode)=>NextResponse.json({
+   success:true,product:'ASURA Defense Intelligence System™',
+   evaluation:'CURRENT PUBLIC ENDPOINT PROBE ONLY — NOT OPERATIONALLY VALIDATED',
+   definitions:operationalDefinitions(),...report,cache:mode
+  },{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
   if(id==='all'&&cached&&now<expiresAt)
-   return NextResponse.json({success:true,...cached,cache:'per-instance-45s'},{
-    headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+   return reply(cached,'per-instance-45s');
   if(id==='all'&&!pending)pending=probeOperationalSources().finally(()=>{pending=null});
   const report=await (id==='all'?pending:probeOperationalSources([id]));
   if(id==='all'){cached=report;expiresAt=Date.now()+45000}
-  return NextResponse.json({
-   success:true,product:'ASURA Defense Intelligence System™',
-   evaluation:'CURRENT PUBLIC ENDPOINT PROBE ONLY — NOT OPERATIONALLY VALIDATED',
-   definitions:operationalDefinitions(),...report,
-   cache:id==='all'?'fresh-probe':'single-source-probe'
-  },{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+  return reply(report,id==='all'?'fresh-probe':'single-source-probe');
  }catch(e){
   return NextResponse.json({success:false,
    error:'Operational source check could not complete',checkedAt:new Date().toISOString()
