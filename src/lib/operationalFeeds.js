@@ -255,7 +255,7 @@ function fcdoAdvice(text){
  let url;
  try{url=new URL(canonical)}catch{throw Error('FCDO canonical travel advice URL invalid')}
  if(url.protocol!=='https:'||url.hostname!=='www.gov.uk'||
-    !/^\\/foreign-travel-advice\\/[a-z-]+$/.test(url.pathname)||
+    !/^\/foreign-travel-advice\/[a-z-]+$/.test(url.pathname)||
     url.username||url.password||url.search||url.hash)
   throw Error('FCDO canonical travel advice URL invalid');
  const published=iso(data.public_updated_at);
