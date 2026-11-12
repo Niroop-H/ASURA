@@ -13,6 +13,10 @@ const DEFINITIONS=[
  {id:'cisa_ics',label:'CISA ICS advisories — defensive metadata',domain:'cyber',url:'https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml',cadenceMinutes:60,maxContentAgeMinutes:10080,scope:'Published industrial control system advisory headlines and links; no exploit details or infrastructure scan',attribution:'Cybersecurity and Infrastructure Security Agency',licenseStatus:'official-public-reuse-review'},
  {id:'nrc_events',label:'NRC daily public event reports — aggregate',domain:'nuclear-safety',url:'https://www.nrc.gov/public-involve/rss?feed=event',cadenceMinutes:360,maxContentAgeMinutes:1440,scope:'Count of publicly listed NRC event notifications; no facility-level operational status or geolocations',attribution:'US Nuclear Regulatory Commission',licenseStatus:'official-public-reuse-review'},
  {id:'imf_portwatch',label:'IMF PortWatch dataset discovery',domain:'maritime',url:'https://portwatch.imf.org/api/search/v1/collections/dataset/items?limit=8',cadenceMinutes:1440,maxContentAgeMinutes:10080,scope:'Public catalogue index ONLY, not daily port volumes, vessel tracks or AIS-derived trade readings; redistribution terms not cleared',attribution:'IMF PortWatch',licenseStatus:'needs-provider-license-verification'},
+ {id:'noaa_swpc_kp',label:'NOAA planetary Kp observed index',domain:'space',url:'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json',cadenceMinutes:60,maxContentAgeMinutes:720,scope:'Published global geomagnetic Kp observations; no localized GNSS jamming or interference inference',attribution:'NOAA Space Weather Prediction Center',licenseStatus:'us-government-public'},
+ {id:'nasdaq_halts',label:'Nasdaq Trader public trading-halt RSS',domain:'finance',url:'https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts',cadenceMinutes:5,maxContentAgeMinutes:1440,scope:'Published US listed-security trading halt notices; event-driven and may be empty on non-trading days; not quotes or execution data',attribution:'Nasdaq Trader',licenseStatus:'provider-terms-review-required'},
+ {id:'federal_register',label:'US Federal Register published documents',domain:'governance',url:'https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Recently published US federal regulations/notices, not proof of legally effective requirements; verify the official PDF',attribution:'Office of the Federal Register',licenseStatus:'official-public-reuse-review'},
+ {id:'fcdo_travel',label:'UK FCDO country travel advice',domain:'travel',url:'https://www.gov.uk/api/content/foreign-travel-advice/india',cadenceMinutes:720,maxContentAgeMinutes:43200,scope:'Official UK travel advice for one explicitly named supported country; default readiness probe checks India only',attribution:'UK Foreign, Commonwealth & Development Office',licenseStatus:'open-government-license-review'},
 ];
 export const OPERATIONAL_SOURCE_IDS=DEFINITIONS.map(x=>x.id);
 export function operationalDefinitions(){return DEFINITIONS.map(x=>({...x}));}
@@ -165,13 +169,98 @@ function portwatch(data){
  return {records,sourceCount:data.features.length,sourceTime:null,
   note:'DISCOVERY ONLY — no published daily maritime observations have been integrated. Source redistribution terms pending review.'};
 }
+
+function swpcKp(text){
+ const data=JSON.parse(text);
+ if(!Array.isArray(data))throw Error('NOAA Kp schema mismatch');
+ const parsed=data.map(row=>{
+  if(!row||typeof row.time_tag!=='string'||!Number.isFinite(Number(row.Kp))||Number(row.Kp)<0||Number(row.Kp)>9)return null;
+  const time=iso(row.time_tag.replace(' ','T').replace(/(?:Z|[+-]\d\d:\d\d)$/,'')+'Z');
+  return time?{time,kp:Number(row.Kp),stations:row.station_count}:null;
+ }).filter(Boolean).sort((a,b)=>a.time.localeCompare(b.time));
+ if(data.length&&!parsed.length)throw Error('NOAA Kp observations invalid');
+ const sample=parsed.slice(-8).reverse();
+ return {records:sample.map((x,i)=>record('noaa_swpc_kp','noaa_swpc_kp',
+  'Planetary Kp '+x.kp.toFixed(2)+' (3-hour index)',
+  'Observed geomagnetic disturbance index Kp (dimensionless, 0–9). This is not a measurement of localized GNSS interference.',
+  'https://www.swpc.noaa.gov/products/planetary-k-index',x.time,i,
+  {dataCategory:'published-geophysical-observation',metric:'Kp',value:x.kp,unit:'dimensionless'})),
+  sourceTime:latest(parsed.map(x=>x.time)),sourceCount:parsed.length,
+  note:'Global historical Kp index; reading interval is three hours, not a real-time GPS-jamming detector.'};
+}
+function nasdaqHalts(text){
+ if(!/<rss\b/i.test(text)||!/<channel(?:\s[^>]*)?>/i.test(text))throw Error('Nasdaq RSS schema mismatch');
+ const items=xmlBlocks(text,'item');
+ const notices=items.slice(0,25).map((item,i)=>{
+  const symbol=xmlField(item,'ndaq:Symbol');
+  const title=noHtml(xmlField(item,'title'))||('Published trading halt'+(symbol?' — '+symbol:''));
+  const desc=noHtml(xmlField(item,'description'));
+  const published=iso(xmlField(item,'pubDate'));
+  return record('nasdaq_halts','nasdaq_halts',title,
+   desc||'Published exchange halt notice; consult Nasdaq for the present market status.',
+   'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts',published,i,
+   {dataCategory:'published-trading-halt-notice'});
+ });
+ return {records:notices.slice(0,20),
+  sourceTime:latest(notices.map(r=>r.observedAt)),sourceCount:items.length,
+  note:'Trading-halt RSS: publication records only. An empty or old feed does not prove trading is unrestricted or the venue is online.'};
+}
+function federalRegister(text){
+ const data=JSON.parse(text);
+ if(!data||!Array.isArray(data.results)||!Number.isFinite(Number(data.count)))throw Error('Federal Register schema mismatch');
+ const rows=data.results.slice(0,20);
+ const records=rows.map((x,i)=>{
+  const date=typeof x.publication_date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(x.publication_date)
+   ?iso(x.publication_date+'T00:00:00Z'):null;
+  return record('federal_register','federal_register',x.title||'Federal Register publication',
+   ['Type: '+clean(x.type||'unspecified',40),'Publication date: '+clean(x.publication_date||'unreported',30),
+    'Document number: '+clean(x.document_number||'unreported',35),
+    'Consult official PDF for legally authoritative text'].join('; '),
+   x.html_url||'https://www.federalregister.gov/',date,i,
+   {dataCategory:'federal-regulatory-publication'});
+ });
+ return {records,sourceTime:latest(records.map(r=>r.observedAt)),sourceCount:Number(data.count),
+  note:'Published administrative notices are historical records, not a stream of currently applicable law. Check the official edition.'};
+}
+const FCDO_COUNTRIES=Object.freeze({
+ india:'india',japan:'japan',france:'france',germany:'germany',
+ 'united states':'usa',usa:'usa',canada:'canada',australia:'australia',
+ brazil:'brazil',china:'china',italy:'italy',singapore:'singapore',
+ thailand:'thailand',turkey:'turkey',indonesia:'indonesia',
+ 'south korea':'south-korea',russia:'russia',ukraine:'ukraine',
+ 'united arab emirates':'united-arab-emirates'
+});
+function fcdoCountry(question){
+ const q=String(question||'').toLowerCase();
+ const name=Object.keys(FCDO_COUNTRIES).sort((a,b)=>b.length-a.length)
+  .find(k=>new RegExp('(?:^|[^a-z])'+k+'(?:$|[^a-z])').test(q));
+ return name?{name,slug:FCDO_COUNTRIES[name]}:null;
+}
+function fcdoAdvice(text){
+ const data=JSON.parse(text);
+ if(data?.schema_name!=='travel_advice'||typeof data.title!=='string'||
+    typeof data.web_url!=='string'||!data.web_url.startsWith('https://www.gov.uk/'))
+  throw Error('FCDO travel advice schema mismatch');
+ const published=iso(data.public_updated_at);
+ const description=noHtml(data.description||'');
+ return {records:[record('fcdo_travel','fcdo_travel',data.title,
+  description||'Official UK FCDO travel advice page. Recheck the full advice before travel.',
+  data.web_url,published,0,{dataCategory:'country-level-public-travel-advice'})],
+  sourceCount:1,sourceTime:published,
+  note:'Country-level UK government advice; publication date is not a live risk sensor. Read the latest full country advice and local authority notices.'};
+}
+
 const parse={
  faa_nas:(text)=>faaNas(text),faa_tfr:(text)=>faaTfr(JSON.parse(text)),
  nws_alerts:(text,detail)=>nws(JSON.parse(text),detail),
  fema_disasters:(text)=>fema(JSON.parse(text)),
  cisa_ics:(text)=>rss(text,'cisa_ics'),
  nrc_events:(text)=>rss(text,'nrc_events',true),
- imf_portwatch:(text)=>portwatch(JSON.parse(text))
+ imf_portwatch:(text)=>portwatch(JSON.parse(text)),
+ noaa_swpc_kp:(text)=>swpcKp(text),
+ nasdaq_halts:(text)=>nasdaqHalts(text),
+ federal_register:(text)=>federalRegister(text),
+ fcdo_travel:(text)=>fcdoAdvice(text)
 };
 export function parseOperationalFixture(id,text,detail){
  if(!parse[id])throw Error('Unknown operational source');
@@ -217,6 +306,12 @@ export async function getOperationalSource(id,question='',opts={}){
    if(!state)throw Error('Please specify a US state for NWS active alerts (for example: California or Texas). No location assumed.');
    target='https://api.weather.gov/alerts/active?area='+state;requested=state;
   }
+  if(id==='fcdo_travel'){
+   const country=opts.healthProbe===true?{name:'India',slug:'india'}:fcdoCountry(question);
+   if(!country)throw Error('Specify a supported country for FCDO travel advice (for example: India, Japan, or Brazil).');
+   target='https://www.gov.uk/api/content/foreign-travel-advice/'+country.slug;
+   requested=country.name;
+  }
   // Official CISA ICS RSS currently publishes ~6 MB of 30 full summaries;
   // the higher cap is restricted to this allowlisted source, not arbitrary URLs.
   const text=await boundedRead(target,{...opts,
@@ -224,7 +319,7 @@ export async function getOperationalSource(id,question='',opts={}){
   const parsed=parseOperationalFixture(id,text,requested);
   const content=freshnessStatus(parsed.sourceTime,checkedAt,definition.maxContentAgeMinutes);
   const status={
-   source:id,name:definition.label,transport:'ok',content:content.state,
+   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:target,
    sourceTime:parsed.sourceTime||null,retrievedAt:checkedAt,checkedAt,
    ageMinutes:content.ageMinutes,reason:content.reason,
    sourceCount:parsed.sourceCount,notes:parsed.note,
@@ -237,15 +332,15 @@ export async function getOperationalSource(id,question='',opts={}){
    usableForOperationalClaims:false
   };
   const records=parsed.records.map((x,i)=>({
-   ...x,id:id+':'+(i+1),retrievedAt:checkedAt,
+   ...x,id:id+':'+(i+1),retrievedAt:checkedAt,sourceUrl:target,licensing:definition.licenseStatus,
    freshness:content.state,sourceTime:parsed.sourceTime||null
   }));
   const digest=createHash('sha256').update(JSON.stringify({id,checkedAt,status,records})).digest('hex');
   return {source:id,success:true,provider:definition.attribution,records,
-   status,checkedAt,sha256:digest};
+   status,checkedAt,sha256:digest,rawSha256:createHash('sha256').update(text).digest('hex')};
  }catch(e){
   return {source:id,success:false,records:[],checkedAt,
-   status:{source:id,name:definition.label,transport:'down',content:'unknown',
+   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:target,
     checkedAt,retrievedAt:null,sourceTime:null,
     reason:clean(e.message,170),scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
     maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
@@ -253,14 +348,14 @@ export async function getOperationalSource(id,question='',opts={}){
  }
 }
 export async function probeOperationalSources(selected=OPERATIONAL_SOURCE_IDS,opts={}){
- const allowed=[...new Set(selected)].filter(x=>OPERATIONAL_SOURCE_IDS.includes(x)).slice(0,7);
+ const allowed=[...new Set(selected)].filter(x=>OPERATIONAL_SOURCE_IDS.includes(x)).slice(0,16);
  const results=await Promise.all(allowed.map(id=>getOperationalSource(id,'',{...opts,healthProbe:true})));
  return {checkedAt:new Date().toISOString(),
   coverage:'On-demand independent checks; no continuous uptime claim or durable audit log',
-  sources:results.map(x=>({...x.status,recordCount:x.records.length,sha256:x.sha256||null})),
+  sources:results.map(x=>({...x.status,recordCount:x.records.length,sha256:x.sha256||null,rawSha256:x.rawSha256||null})),
   evidencePacks:results.map(x=>({
    source:x.source,checkedAt:x.checkedAt,status:x.status,
-   records:x.records,sha256:x.sha256||null
+   records:x.records,sha256:x.sha256||null,rawSha256:x.rawSha256||null
   })),
   freshItemCount:results.filter(x=>x.status?.sourceItemFresh).length,
   readyCount:0, // operational acceptance is never inferred from live probing
