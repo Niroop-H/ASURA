@@ -54,7 +54,7 @@ export default function ReadinessPage(){
    {error&&<p role="alert" className="text-red-700 text-sm">{error}</p>}
    {report&&<p className="text-xs text-slate-500">
     Checked {new Date(report.checkedAt).toLocaleString()} · {report.checkCount} providers probed ·
-    {report.readyCount} returned items within their configured freshness threshold.
+    {report.freshItemCount} source groups have a fresh published item; 0 are operationally approved.
     No continuous monitoring or permanent audit log is enabled.
    </p>}
   </section>
