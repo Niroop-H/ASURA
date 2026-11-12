@@ -46,6 +46,77 @@ function airplaneIcon(L, heading, highlight) {
     iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2],
   });
 }
+
+// Esri sometimes returns its "Map data not yet available" placeholder as
+// a valid HTTP 200 JPEG. Replace only that known placeholder (or 4xx errors)
+// with an appropriately cropped lower-level source tile at the same location.
+// A fallback does not improve native image resolution.
+function isUnavailableEsriTile(img){
+ try{
+  const canvas=document.createElement('canvas');canvas.width=16;canvas.height=16;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  if(!ctx)return false;
+  ctx.drawImage(img,0,0,16,16);
+  const pixels=ctx.getImageData(0,0,16,16).data;
+  let grey=0;
+  for(let i=0;i<pixels.length;i+=4){
+   const r=pixels[i],g=pixels[i+1],b=pixels[i+2];
+   if(Math.abs(r-204)<=13&&Math.abs(g-204)<=13&&Math.abs(b-204)<=13&&
+      Math.abs(r-g)<=3&&Math.abs(g-b)<=3)grey++;
+  }
+  return grey>=155;
+ }catch{return false;}
+}
+function esriImageryWithFallback(L){
+ const TILE=256;
+ const url=(z,x,y)=>
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/'+z+'/'+y+'/'+x;
+ const Layer=L.GridLayer.extend({
+  createTile(coords,done){
+   const tile=L.DomUtil.create('div','asura-esri-imagery-tile');
+   Object.assign(tile.style,{position:'relative',width:TILE+'px',height:TILE+'px',
+    overflow:'hidden',backgroundColor:'#263441'});
+   let completed=false,attempts=0;
+   const finish=error=>{
+    if(completed)return;
+    completed=true;
+    if(error){
+     tile.textContent='Imagery not available in this area';
+     Object.assign(tile.style,{color:'#dbeafe',fontSize:'12px',padding:'18px'});
+    }
+    done(error||null,tile);
+   };
+   const tryLevel=z=>{
+    if(completed)return;
+    if(z<3||attempts++>=7){finish(new Error('No accessible Esri image tile'));return;}
+    const scale=Math.pow(2,coords.z-z);
+    const x=Math.floor(coords.x/scale),y=Math.floor(coords.y/scale);
+    const image=document.createElement('img');
+    image.crossOrigin='anonymous';image.alt='';image.decoding='async';
+    Object.assign(image.style,{
+     position:'absolute',maxWidth:'none',width:scale*TILE+'px',
+     height:scale*TILE+'px',left:-(coords.x-x*scale)*TILE+'px',
+     top:-(coords.y-y*scale)*TILE+'px'
+    });
+    image.onload=()=>{
+     if(completed)return;
+     if(isUnavailableEsriTile(image)){tryLevel(z-1);return;}
+     tile.appendChild(image);
+     if(z<coords.z)this.fire('imageryfallback',{requestedZoom:coords.z,
+      servedZoom:z,coords:{x:coords.x,y:coords.y,z:coords.z}});
+     finish(null);
+    };
+    image.onerror=()=>{if(!completed)tryLevel(z-1);};
+    image.src=url(z,x,y);
+   };
+   tryLevel(coords.z);
+   return tile;
+  }
+ });
+ return new Layer({tileSize:TILE,maxZoom:19,minZoom:2,keepBuffer:2,
+  attribution:'Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community'});
+}
+
 function initializeLeaflet() {
   if (window.L) return Promise.resolve(window.L);
   if (window.__asuraLeaflet) return window.__asuraLeaflet;
@@ -85,7 +156,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     try {
       map.stop();
       map.invalidateSize({pan:false,animate:false});
-      map.setView([lat,lon],Math.max(2,Math.min(23,zoom)),{animate:false});
+      map.setView([lat,lon],Math.max(2,Math.min(19,zoom)),{animate:false});
       return true;
     } catch(error) {
       console.warn('ASURA: invalid map navigation suppressed', error.message);
@@ -135,7 +206,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
   const zoomMap=step=>{
     const m=mapRef.current;
     if(!m)return;
-    const next=Math.min(23,Math.max(2,m.getZoom()+step));
+    const next=Math.min(19,Math.max(2,m.getZoom()+step));
     if(Number.isFinite(next))m.setZoom(next,{animate:false});
   };
   const toggleFullscreenMap=async()=>{
@@ -191,7 +262,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         : (REGIONS[region]?.coords || REGIONS.bengaluru.coords);
       const map = L.map(target.current, {
         zoomControl:true,worldCopyJump:true,preferCanvas:true,
-        maxZoom:23,minZoom:2,zoomSnap:1,
+        maxZoom:19,minZoom:2,zoomSnap:1,
       }).setView(firstCenter,6,{animate:false});
       mapRef.current = map;
       tileRef.current = {
@@ -199,10 +270,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           maxZoom:23,maxNativeZoom:19,
           attribution:'© OpenStreetMap contributors',
         }),
-        satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
-          maxZoom:23,maxNativeZoom:19,
-          attribution:'Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community',
-        }),
+        satellite: esriImageryWithFallback(L),
       };
       tileRef.current.satellite.addTo(map);
       L.control.scale({metric:true,imperial:false}).addTo(map);
@@ -274,14 +342,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         const data=await res.json();
         if(!active)return;
         setImageryMeta(data);
-        if(data.success&&Number.isFinite(data.maximumSourceZoom)&&tileRef.current.satellite){
-          const native=Math.max(0,Math.min(23,data.maximumSourceZoom));
-          const tile=tileRef.current.satellite;
-          if(tile.options.maxNativeZoom!==native){
-            tile.options.maxNativeZoom=native;
-            if(mapRef.current?.hasLayer(tile))tile.redraw();
-          }
-        }
+        // Keep the underlying native tiles stable when the metadata changes.
+        // Zoom-band citation levels are NOT a global maxNativeZoom setting.
       }catch(error){
         if(active&&error.name!=='AbortError')
           setImageryMeta({success:false,error:'Image capture metadata unavailable: '+error.message});
@@ -605,7 +667,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       {dimension==='2D'&&basemap==='satellite'&&<div className="rounded border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-slate-700 space-y-1" role="status">
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           <strong>Current Esri satellite/aerial mosaic</strong>
-          <span>Map zoom: {zoomLevel}/23</span>
+          <span>Map zoom: {zoomLevel}/19</span>
           <span>Image capture at map center, zoom {zoomLevel}: {imageryMeta?.success?
             (imageryMeta.acquiredOn||'Provider date unavailable'):'Checking provider metadata…'}</span>
           {imageryMeta?.success&&Number.isFinite(imageryMeta.sourceResolutionMeters)&&
@@ -643,14 +705,14 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           <span className="text-xs text-slate-300">{flightData?.success?
             flightData.count+' observed positions · '+flightData.provider:
             'Aircraft feed '+(flightData?'unavailable':'loading')}</span>
-          <span className="text-xs text-slate-400">Map z{zoomLevel}/23 · {basemap==='satellite'?
+          <span className="text-xs text-slate-400">Map z{zoomLevel}/19 · {basemap==='satellite'?
             (imageryMeta?.acquiredOn?'Image capture '+imageryMeta.acquiredOn:'Imagery date not verified'):
             'Street map'} {imageryMeta?.digitallyEnlarged?'· digitally enlarged':''}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <button type="button" onClick={()=>setBasemap('street')} className={'px-2 py-1.5 rounded border border-slate-600 '+(basemap==='street'?'bg-sky-700':'')}>Street</button>
           <button type="button" onClick={()=>setBasemap('satellite')} className={'px-2 py-1.5 rounded border border-slate-600 '+(basemap==='satellite'?'bg-sky-700':'')}>Satellite</button>
-          <button type="button" onClick={()=>zoomMap(1)} disabled={zoomLevel>=23}
+          <button type="button" onClick={()=>zoomMap(1)} disabled={zoomLevel>=19}
             aria-label="Zoom in" className="px-2 py-1.5 rounded border border-slate-600 disabled:opacity-40 flex gap-1 items-center"><ZoomIn size={15}/> Zoom +</button>
           <button type="button" onClick={()=>zoomMap(-1)} disabled={zoomLevel<=2}
             aria-label="Zoom out" className="px-2 py-1.5 rounded border border-slate-600 disabled:opacity-40 flex gap-1 items-center"><ZoomOut size={15}/> Zoom −</button>
