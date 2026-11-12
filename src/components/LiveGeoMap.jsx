@@ -531,6 +531,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           <button onClick={loadCurrentArea} type="button" className="px-3 py-2 rounded border text-xs bg-sky-700 text-white">Load aircraft at map center</button>
           {dimension==='2D'&&<button onClick={fitAircraft} disabled={!flights.length}
             type="button" className="px-3 py-2 rounded border text-xs bg-white disabled:opacity-50">Fit reported aircraft</button>}
+          {dimension==='2D'&&<button type="button" onClick={toggleFullscreenMap}
+            className="px-3 py-2 rounded border text-xs bg-slate-900 text-white flex items-center gap-2">
+            <Maximize2 size={14}/> Fullscreen monitor
+          </button>}
           <button onClick={() => setRefresh(n => n + 1)} type="button" className="px-3 py-2 rounded border text-xs">Refresh feeds</button>
         </div>
       </div>
@@ -597,10 +601,28 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         {flightData.truncated ? ' · Provider results exceed the 1,500-record response cap' : ''}
         {flights.length > 900 ? ' · Map displays first 900 marker records' : ''}
       </p>}
+      {dimension==='2D'&&basemap==='satellite'&&<div className="rounded border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-slate-700 space-y-1" role="status">
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <strong>Current Esri satellite/aerial mosaic</strong>
+          <span>Map zoom: {zoomLevel}/23</span>
+          <span>Image acquisition at map center: {imageryMeta?.success?
+            (imageryMeta.acquiredOn||'Provider date unavailable'):'Checking provider metadata…'}</span>
+          {imageryMeta?.success&&Number.isFinite(imageryMeta.sourceResolutionMeters)&&
+            <span>Reported source resolution: {imageryMeta.sourceResolutionMeters} m</span>}
+          {imageryMeta?.success&&Number.isFinite(imageryMeta.maximumSourceZoom)&&
+            <span>Source zoom coverage at center: up to {imageryMeta.maximumSourceZoom}</span>}
+        </div>
+        <p>{imageryMeta?.success&&imageryMeta.sourceProvider?
+          'Source: '+imageryMeta.sourceProvider+(imageryMeta.sourceName?' / '+imageryMeta.sourceName:'')+'. ':
+          ''}The imagery is not live. Zoom beyond its native resolution enlarges pixels and cannot reveal a coffee mug or create new visual detail.</p>
+        {imageryMeta&&!imageryMeta.success&&<p className="text-amber-900">
+          {imageryMeta.error||'Imagery acquisition date is unverified'}</p>}
+      </div>}
       <p className="text-xs text-slate-600">
         Explore worldwide: drag or zoom the map to any location, then select
         <strong> Load aircraft at map center</strong>. Only the highlighted 250 NM region is queried,
         not every aircraft on Earth. A worldwide live stream requires a licensed provider.
+        Static imagery and aircraft position timestamps are independent.
       </p>
     </div>
     {dimension==='3D' && <CesiumGlobe
@@ -610,19 +632,87 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       onViewportCenter={setGlobeCenter}
       onSelect={record => setSelected({source:record.sourceType,id:record.id})}
     />}
-    <div className="grid grid-cols-1 xl:grid-cols-3">
-      {dimension === '2D' && <div className="xl:col-span-2 min-w-0">
-        {mapError && <p role="alert" className="text-red-700 text-sm p-3">{mapError}</p>}
-        <div ref={target} style={{ height: 590 }} className="w-full bg-slate-900" aria-label="Interactive street or satellite map displaying aircraft-shaped live observation markers" />
+    <div ref={mapShellRef} className={fullscreenMap?
+      'fixed inset-0 z-[9999] flex flex-col bg-white text-slate-900':
+      'relative'}>
+      {fullscreenMap&&<div className="shrink-0 bg-slate-950 text-white flex flex-wrap gap-2 items-center justify-between px-4 py-2 border-b border-slate-700">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-semibold text-sm flex items-center gap-2"><Plane size={16}/> ASURA Aircraft Monitor</span>
+          <span className="text-xs text-slate-300">{flightData?.success?
+            flightData.count+' observed positions · '+flightData.provider:
+            'Aircraft feed '+(flightData?'unavailable':'loading')}</span>
+          <span className="text-xs text-slate-400">Map z{zoomLevel}/23 · {basemap==='satellite'?
+            (imageryMeta?.acquiredOn?'Image captured '+imageryMeta.acquiredOn:'Imagery date not verified'):
+            'Street map'}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <button type="button" onClick={()=>setBasemap('street')} className={'px-2 py-1.5 rounded border border-slate-600 '+(basemap==='street'?'bg-sky-700':'')}>Street</button>
+          <button type="button" onClick={()=>setBasemap('satellite')} className={'px-2 py-1.5 rounded border border-slate-600 '+(basemap==='satellite'?'bg-sky-700':'')}>Satellite</button>
+          <button type="button" onClick={()=>zoomMap(1)} disabled={zoomLevel>=23}
+            aria-label="Zoom in" className="px-2 py-1.5 rounded border border-slate-600 disabled:opacity-40 flex gap-1 items-center"><ZoomIn size={15}/> Zoom +</button>
+          <button type="button" onClick={()=>zoomMap(-1)} disabled={zoomLevel<=2}
+            aria-label="Zoom out" className="px-2 py-1.5 rounded border border-slate-600 disabled:opacity-40 flex gap-1 items-center"><ZoomOut size={15}/> Zoom −</button>
+          <button type="button" onClick={fitAircraft} disabled={!flights.length}
+            className="px-2 py-1.5 rounded border border-slate-600 disabled:opacity-40">Fit aircraft</button>
+          <button type="button" onClick={loadCurrentArea}
+            className="px-2 py-1.5 rounded border border-slate-600">Load this region</button>
+          <button type="button" onClick={()=>setRefresh(n=>n+1)}
+            className="px-2 py-1.5 rounded border border-slate-600 flex gap-1 items-center"><RefreshCw size={13}/> Refresh</button>
+          <button type="button" onClick={toggleFullscreenMap}
+            className="px-3 py-1.5 rounded bg-sky-700 flex gap-1 items-center"><Minimize2 size={14}/> Exit fullscreen</button>
+        </div>
       </div>}
-      <aside className={'min-w-0 border-l border-slate-200 flex flex-col '+(dimension==='3D'?'xl:col-span-3':'')}>
+      <div className={fullscreenMap?
+        'flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden':
+        'grid grid-cols-1 xl:grid-cols-3'}>
+        {dimension === '2D' && <div className={fullscreenMap?
+          'flex-1 min-w-0 min-h-0 relative':
+          'xl:col-span-2 min-w-0 relative'}>
+          {mapError && <p role="alert" className="absolute z-[600] left-3 top-3 bg-red-50 text-red-800 text-xs p-3 rounded">{mapError}</p>}
+          <div ref={target} style={{height:fullscreenMap?'100%':590}}
+            className="w-full bg-slate-900"
+            aria-label="Interactive street or satellite map displaying selected aircraft and their last reported coordinates" />
+          {fullscreenMap&&<div className="absolute bottom-2 left-3 z-[500] pointer-events-none rounded bg-slate-950/85 text-white text-xs p-2 max-w-sm">
+            Esri image is historical{imageryMeta?.acquiredOn?' (captured '+imageryMeta.acquiredOn+')':''};
+            flights use independent receiver observations. Extra zoom cannot increase source resolution.
+          </div>}
+        </div>}
+        <aside className={fullscreenMap?
+          'w-full lg:w-[365px] lg:shrink-0 min-h-0 border-t lg:border-t-0 lg:border-l border-slate-300 bg-white flex flex-col':
+          'min-w-0 border-l border-slate-200 flex flex-col '+(dimension==='3D'?'xl:col-span-3':'')}
+          style={fullscreenMap?{maxHeight:'100%',overflow:'hidden'}:undefined}>
+        {fullscreenMap&&<div className="border-b bg-slate-50 p-3 text-xs space-y-2 shrink-0 max-h-[46%] overflow-y-auto">
+          <h3 className="font-semibold text-sm flex items-center gap-2"><Plane size={18} className="text-sky-700"/> Selected aircraft data</h3>
+          {current ? <>
+            <div className="font-bold text-base">{current.title||current.id}</div>
+            {aircraftMissing&&<p className="text-amber-900 font-semibold">
+              Last known report — aircraft no longer appears in the newest receiver snapshot.
+            </p>}
+            <div className="grid grid-cols-2 gap-2">
+              <Datum label="Registration" value={display(current.registration)}/>
+              <Datum label="Aircraft type" value={display(current.aircraftType)}/>
+              <Datum label="ICAO 24-bit ID" value={display(current.icao24)}/>
+              <Datum label="Barometric altitude" value={Number.isFinite(current.altitudeFeet)?Math.round(current.altitudeFeet).toLocaleString()+' ft':'Not reported'}/>
+              <Datum label="Groundspeed" value={Number.isFinite(current.speedKnots)?Math.round(current.speedKnots)+' kt':'Not reported'}/>
+              <Datum label="Ground track" value={Number.isFinite(current.heading)?Math.round(current.heading)+'°':'Not reported'}/>
+              <Datum label="Latitude" value={Number.isFinite(current.lat)?current.lat.toFixed(5):'Not reported'}/>
+              <Datum label="Longitude" value={Number.isFinite(current.lon)?current.lon.toFixed(5):'Not reported'}/>
+            </div>
+            <p>Observed: <strong>{when(current.observedAt)}</strong></p>
+            <p>Age now: {Number.isFinite(ageNow)?ageNow+' seconds':'Unknown'} · {current.source||'Provider not supplied'}</p>
+            <p>{typeof current.onGround==='boolean'?
+              current.onGround?'Reported on ground':'Reported airborne':'Ground status unavailable'}</p>
+            <p className="text-slate-500">Provider observation, not a confirmed landing, destination or live image of the airplane.</p>
+          </>:<p className="text-slate-600">Click an airplane on the map or select it from the list below to inspect the latest available position.</p>}
+        </div>}
         <div className="p-4 border-b space-y-2">
           <h3 className="font-semibold text-sm">Aircraft near {REGIONS[region]?.name || 'selected map center'}</h3>
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search callsign, registration, type…" aria-label="Search aircraft" className="w-full rounded border border-slate-300 p-2 text-sm"/>
           <p className="text-xs text-slate-500">{visibleFlights.length} matching records · Click one to locate it</p>
           {flights.length > 500 && <p className="text-xs text-amber-800">First 500 aircraft shown in list. Narrow search or map location.</p>}
         </div>
-        <div className="overflow-y-auto divide-y divide-slate-100" style={{ maxHeight: 452 }}>
+        <div className={'overflow-y-auto divide-y divide-slate-100 '+(fullscreenMap?'flex-1 min-h-0':'')}
+          style={fullscreenMap?{maxHeight:'100%'}:{maxHeight:452}}>
           {visibleFlights.slice(0, 500).map(r => <button key={r.id} type="button" onClick={() => selectAircraft(r)}
             className={'w-full text-left p-3 hover:bg-slate-100 ' + (selected?.source === 'flights' && selected.id === r.id ? 'bg-sky-50' : '')}>
             <div className="flex justify-between gap-3">
@@ -639,7 +729,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           </button>)}
           {!visibleFlights.length && <div className="p-4 text-sm text-slate-500">{flightData?.success ? 'No matching aircraft in the current feed.' : 'No verified aircraft records available.'}</div>}
         </div>
-      </aside>
+        </aside>
+      </div>
     </div>
     <div className="p-4 border-t border-slate-200">
       <h3 className="font-semibold text-sm mb-3">Selected observation</h3>
