@@ -44,11 +44,29 @@ const indicators=[
  [/gdp|gross domestic product|economy of/i,'NY.GDP.MKTP.CD','GDP','current US$']
 ];
 function getCountries(q){
- const found=Object.entries(countries).filter(([name])=>
-  new RegExp('(?:^|[^a-z])'+name.replace(/\s+/g,'\\s+')+'(?:$|[^a-z])','i').test(q))
-  .sort((a,b)=>b[0].length-a[0].length);
- return [...new Set(found.map(x=>x[1]))].slice(0,3);
+ const lower=q.toLowerCase();
+ const isMatch=name=>{
+  const token=name.toLowerCase();
+  let at=lower.indexOf(token);
+  while(at>=0){
+   const before=at>0?lower[at-1]:'';
+   const after=lower[at+token.length]||'';
+   if(!/[a-z]/.test(before)&&!/[a-z]/.test(after))return true;
+   at=lower.indexOf(token,at+1);
+  }
+  return false;
+ };
+ // Common aliases plus ISO-3166 country names supported by Node ICU.
+ const list=[...Object.entries(countries)];
+ const display=new Intl.DisplayNames(['en'],{type:'region'});
+ for(let first=65;first<=90;first++)for(let second=65;second<=90;second++){
+  const code=String.fromCharCode(first,second),name=display.of(code);
+  if(name&&name!==code)list.push([name.toLowerCase(),code]);
+ }
+ return [...new Set(list.filter(([name])=>isMatch(name))
+  .sort((a,b)=>b[0].length-a[0].length).map(x=>x[1]))].slice(0,3);
 }
+
 async function economy(q){
  const [re,indicator,label,unit]=indicators.find(row=>row[0].test(q))||indicators[6];
  const selected=getCountries(q);
@@ -61,19 +79,22 @@ async function economy(q){
    evidence('economy','World Bank WDI',
     (x.country?.value||code)+' — '+label+' ('+x.date+')',
     'Value '+x.value.toLocaleString('en-US',{maximumFractionDigits:5})+' '+unit+
-    '. Annual observation; source vintage '+(d[0]?.lastupdated||'unreported')+
-    '. Data may be revised.',url,x.date+'-01-01',i,'historical-country-statistic'));
+    '. Annual observation for year '+x.date+
+    '; source vintage '+(d[0]?.lastupdated||'unreported')+
+    '. Data may be revised; not a reading taken on 1 January.',url,null,i,'historical-country-statistic'));
  }));
  const records=work.filter(x=>x.status==='fulfilled').flatMap(x=>x.value)
   .map((x,i)=>({...x,id:'economy:'+(i+1)}));
- if(!records.length)throw Error('No recent published values were available for the requested country.');
+ if(!records.length)throw Error('World Bank returned no usable values: '+
+  work.map(x=>x.status==='rejected'?String(x.reason?.message||'provider unavailable'):
+    'no published indicator values').join(' | ').slice(0,220));
  return {provider:'World Bank WDI',records,note:'Annual, revised country statistics. Not real-time economics.'};
 }
 const supported=new Set(['USD','EUR','INR','GBP','JPY','CNY','AED','CAD','AUD','CHF','SGD','BRL','KRW','ZAR']);
 const currencies={'us dollar':'USD',dollar:'USD','indian rupee':'INR',rupee:'INR',euro:'EUR',
  pound:'GBP',yen:'JPY',dirham:'AED'};
 async function fx(q){
- let codes=(q.match(/\b[A-Z]{3}\b/g)||[]).filter(x=>supported.has(x));
+ let codes=(q.toUpperCase().match(/\b[A-Z]{3}\b/g)||[]).filter(x=>supported.has(x));
  for(const [phrase,code] of Object.entries(currencies))
   if(new RegExp('(?:^|\\W)'+phrase+'(?:$|\\W)','i').test(q))codes.push(code);
  codes=[...new Set(codes)];
@@ -90,7 +111,7 @@ async function fx(q){
    '1 '+base+' = '+row.rate+' '+quote+'. Published on '+row.date+'.'+
     (amount?' '+amount+' '+base+' ≈ '+(Number(amount)*row.rate).toFixed(4)+' '+quote+'.':'')+
     ' Reference rate, not live executable market pricing.',
-   'https://frankfurter.dev/',row.date+'T00:00:00Z',0,'daily-reference-rate')],
+   'https://frankfurter.dev/',null,0,'daily-reference-rate')],
   note:'Central-bank reference rates; not intraday market tick data.'};
 }
 async function cyber(q){
@@ -128,9 +149,10 @@ async function space(q){
   note:'Public general perturbations elements, not real-time satellite imagery or verified tracking.'};
 }
 function entityName(q){
- return q.replace(/\b(?:what is|tell me|find|show|search|lookup|check|latest|current|registered|legal|corporate|company|business|entity|firm|lei|legal entity identifier|registration|details|information|of|for|about|please|the|a|is|are|and|ownership)\b/ig,' ')
+ return q.replace(/\b(?:legal entity identifier|what is|tell me|find|show|search|lookup|check|latest|current|registered|legal|corporate|company|business|entity|firm|lei|gleif|registration|details|information|entry|of|for|in|from|about|please|the|a|is|are|and|ownership)\b/ig,' ')
   .replace(/[^\p{L}\p{N} &.'-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,80);
 }
+
 async function business(q){
  const name=entityName(q);
  if(name.length<3)throw Error('Specify a registered company name for GLEIF LEI search.');
@@ -152,7 +174,7 @@ async function business(q){
   note:'Fuzzy entity matches; verify the legal entity name and jurisdiction.'};
 }
 async function reference(q){
- const term=q.replace(/\b(?:tell me about|identify|who is|what is|give details about|wikidata|search|lookup|the|a|an|please)\b/ig,' ')
+ const term=q.replace(/\b(?:give details about|tell me about|who is|what is|identify|find|show|wikidata|entry|reference|search|lookup|the|a|an|for|of|in|please)\b/ig,' ')
   .replace(/[?!.,]/g,' ').replace(/\s+/g,' ').trim().slice(0,85);
  if(term.length<2)throw Error('Specify a named place or entity to look up.');
  const url='https://www.wikidata.org/w/api.php?action=wbsearchentities&search='+
