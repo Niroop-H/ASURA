@@ -9,7 +9,7 @@
     "start": "node ./node_modules/next/dist/bin/next start",
     "lint": "node ./node_modules/next/dist/bin/next lint",
     "validate-keys": "node scripts/validate-keys.js",
-    "test:operational": "node --test tests/operationalFeeds.test.cjs"
+    "test:operational": "node --test tests/operationalFeeds.test.cjs tests/expandedFeeds.test.cjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

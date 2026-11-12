@@ -146,7 +146,8 @@ export async function POST(request){
  const hasDomainSpecificEvidence=evidence.statuses.some(s=>
   s.success&&['weather','flights','earthquakes','events','economy','fx','cyber',
    'space','business','reference','faa_nas','faa_tfr','nws_alerts',
-   'fema_disasters','cisa_ics','nrc_events'].includes(s.source)&&
+   'fema_disasters','cisa_ics','nrc_events','noaa_swpc_kp',
+   'nasdaq_halts','federal_register','fcdo_travel'].includes(s.source)&&
   evidence.records.some(r=>r.source===s.source)&&
   (!s.contentFreshness||s.contentFreshness==='fresh'));
  const requestWeb=webResearchAllowed&&Boolean(

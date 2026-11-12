@@ -5,10 +5,16 @@ on:
     paths:
       - 'src/lib/operationalFeeds.js'
       - 'src/lib/agentContext.js'
+      - 'src/lib/intelligenceCatalog.js'
+      - 'src/app/api/agent/route.js'
+      - 'src/app/readiness/page.jsx'
       - 'src/app/api/intelligence/assurance/route.js'
       - 'tests/operationalFeeds.test.cjs'
+      - 'tests/expandedFeeds.test.cjs'
       - 'package.json'
       - '.github/workflows/operational-contracts.yml'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
