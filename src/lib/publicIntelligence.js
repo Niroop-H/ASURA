@@ -73,7 +73,14 @@ async function economy(q){
  if(!selected.length)throw Error('Specify a country for the World Bank indicator, e.g. GDP of India.');
  const work=await Promise.allSettled(selected.map(async code=>{
   const url='https://api.worldbank.org/v2/country/'+code+'/indicator/'+indicator+'?format=json&per_page=15';
-  const d=await getJson(url,250000);
+  let d;
+  try{d=await getJson(url,250000)}
+  catch(e){
+   // Published World Bank data is idempotent. Retry only transient upstream
+   // timeout / gateway failures; never substitute another country or year.
+   if(!/timeout|abort|HTTP 5\d\d|HTTP 429/i.test(String(e.message)))throw e;
+   d=await getJson(url,250000);
+  }
   const rows=Array.isArray(d?.[1])?d[1]:[];
   return rows.filter(x=>Number.isFinite(x.value)).slice(0,3).map((x,i)=>
    evidence('economy','World Bank WDI',
@@ -157,9 +164,23 @@ async function business(q){
  const name=entityName(q);
  if(name.length<3)throw Error('Specify a registered company name for GLEIF LEI search.');
  const url='https://api.gleif.org/api/v1/lei-records?filter%5Bfulltext%5D='+
-  encodeURIComponent(name)+'&page%5Bsize%5D=5';
- const d=await getJson(url,260000);
- const records=(Array.isArray(d.data)?d.data:[]).map((x,i)=>{
+  encodeURIComponent(name)+'&page%5Bsize%5D=40';
+ const d=await getJson(url,750000);
+ const normalized=x=>String(x||'').toLowerCase().replace(/[^a-z0-9 ]/g,'').trim();
+ const query=normalized(name);
+ const rank=x=>{
+  const n=normalized(x.attributes?.entity?.legalName?.name);
+  if(n===query)return 0;
+  if(n===query+' corporation'||n===query+' corp')return 1;
+  if(n.startsWith(query+' '))return 2;
+  if(n.includes(query))return 3;
+  return 4;
+ };
+ const matching=(Array.isArray(d.data)?d.data:[])
+  .filter(x=>rank(x)<4)
+  .sort((a,b)=>rank(a)-rank(b)||String(a.attributes?.entity?.legalName?.name||'')
+    .localeCompare(String(b.attributes?.entity?.legalName?.name||'')));
+ const records=matching.slice(0,8).map((x,i)=>{
   const a=x.attributes||{},e=a.entity||{},addr=e.legalAddress||{};
   return evidence('business','GLEIF Golden Copy',
    e.legalName?.name||'Unlabelled legal entity',
@@ -171,7 +192,7 @@ async function business(q){
    d.meta?.goldenCopy?.publishDate||null,i,'company-registry');
  });
  return {provider:'GLEIF',records,providerTime:d.meta?.goldenCopy?.publishDate||null,
-  note:'Fuzzy entity matches; verify the legal entity name and jurisdiction.'};
+  note:'Ranked company-name matches, including distinct related entities. Do not equate subsidiaries, pensions or similarly named firms with the parent company; verify legal name and jurisdiction.'};
 }
 async function reference(q){
  const term=q.replace(/\b(?:give details about|tell me about|who is|what is|identify|find|show|wikidata|entry|reference|search|lookup|the|a|an|for|of|in|please)\b/ig,' ')
