@@ -98,9 +98,14 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
    (Array.isArray(t?.browser_results)&&t.browser_results.length>0)||
    (Array.isArray(t?.search_results?.results)&&t.search_results.results.length>0));
   const refs=(Array.isArray(executed)?executed:[])
-   .flatMap(t=>(Array.isArray(t?.browser_results)?t.browser_results:[]))
-   .map(t=>({title:String(t.title||'Public source').slice(0,130),url:String(t.url||'')}))
+   .flatMap(t=>[
+    ...(Array.isArray(t?.browser_results)?t.browser_results:[]),
+    ...(Array.isArray(t?.search_results?.results)?t.search_results.results:[]),
+   ])
+   .map(t=>({title:String(t.title||'Public source').slice(0,130),
+     url:String(t.url||'')}))
    .filter(x=>{try{return new URL(x.url).protocol==='https:'}catch{return false}})
+   .filter((entry,i,arr)=>arr.findIndex(x=>x.url===entry.url)===i)
    .slice(0,10);
   if(!answer||typeof answer!=='string'||!answer.trim()){
    failures.push({status:502,detail:'Model returned no usable answer'});
