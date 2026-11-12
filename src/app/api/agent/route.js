@@ -99,7 +99,10 @@ export async function POST(request){
  const webResearchAllowed=body?.webResearch!==false&&mode!=='general';
  const explicitWeb=/\b(?:search (?:the )?web|browse (?:the )?(?:web|internet)|look (?:up|online)|web search|online search|research online)\b/i.test(message);
  const changingFact=/\b(?:latest|breaking|today|tonight|yesterday|tomorrow|right now|now|currently|this week|last week|this month|recent|upcoming|live updates?|as of|2026|current (?:president|minister|ceo|government|price|status)|news about|what happened|who is (?:the )?(?:current|president|prime minister|ceo))\b/i.test(message);
- const requestWeb=webResearchAllowed&&(explicitWeb||changingFact||body?.forceWebResearch===true);
+ // Give the 120B reasoning model access to web research for ANY topic.
+ // It chooses whether to use browser_search for ordinary queries; for
+ // genuinely time-sensitive questions we require retrieval.
+ const requestWeb=webResearchAllowed;
  // Snapshot questions should not silently import unrelated default regional data.
  const active=wantsImage?[]:selectAgentSources(message,mode,body?.sources);
  const region=['bengaluru','london','singapore','newyork','dubai'].includes(body?.region)?body.region:'bengaluru';
