@@ -68,55 +68,61 @@ function isUnavailableEsriTile(img){
  }catch{return false;}
 }
 function esriImageryWithFallback(L){
- const TILE=256;
- const url=(z,x,y)=>
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/'+z+'/'+y+'/'+x;
- const Layer=L.GridLayer.extend({
+ const URL='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+ const attribution='Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community';
+
+ // A regular Leaflet TileLayer is essential for the base: the previous
+ // custom GridLayer built giant cropped <img> elements and left widespread
+ // grey holes while it retried lower levels, even at zoom 8.
+ // The world-covering z0–13 layer always uses Leaflet's tested tile sizing,
+ // wrapping and pan/zoom positioning.
+ const base=L.tileLayer(URL,{
+  minZoom:2,maxZoom:19,maxNativeZoom:13,zIndex:1,keepBuffer:3,
+  attribution
+ });
+
+ // Optional native-detail layers sit over the continuous imagery. An Esri
+ // unavailable-data image is HTTP 200 rather than a tileerror, so inspect
+ // its known grey placeholder and make it transparent. The genuine lower
+ // zoom imagery remains visible underneath, correctly georeferenced.
+ const DetailLayer=L.TileLayer.extend({
   createTile(coords,done){
-   const tile=L.DomUtil.create('div','asura-esri-imagery-tile');
-   Object.assign(tile.style,{position:'relative',width:TILE+'px',height:TILE+'px',
-    overflow:'hidden',backgroundColor:'#263441'});
-   let completed=false,attempts=0;
-   const finish=error=>{
-    if(completed)return;
-    completed=true;
-    if(error){
-     tile.textContent='Imagery not available in this area';
-     Object.assign(tile.style,{color:'#dbeafe',fontSize:'12px',padding:'18px'});
-    }
-    done(error||null,tile);
-   };
-   const tryLevel=z=>{
-    if(completed)return;
-    if(z<3||attempts++>=7){finish(new Error('No accessible Esri image tile'));return;}
-    const scale=Math.pow(2,coords.z-z);
-    const x=Math.floor(coords.x/scale),y=Math.floor(coords.y/scale);
-    const image=document.createElement('img');
-    image.crossOrigin='anonymous';image.alt='';image.decoding='async';
-    Object.assign(image.style,{
-     position:'absolute',maxWidth:'none',width:scale*TILE+'px',
-     height:scale*TILE+'px',left:-(coords.x-x*scale)*TILE+'px',
-     top:-(coords.y-y*scale)*TILE+'px'
+   const tile=document.createElement('img');
+   tile.alt='';
+   tile.setAttribute('role','presentation');
+   tile.crossOrigin='anonymous'; // Esri enables ACAO: *; permits detection
+   const unavailable=()=>{
+    tile.style.opacity='0';
+    this.fire('imageryfallback',{
+     requestedZoom:coords.z,
+     servedZoom:this.options.fallbackZoom,
+     coords:{x:coords.x,y:coords.y,z:coords.z},
     });
-    image.onload=()=>{
-     if(completed)return;
-     if(isUnavailableEsriTile(image)){tryLevel(z-1);return;}
-     tile.appendChild(image);
-     if(z<coords.z)this.fire('imageryfallback',{requestedZoom:coords.z,
-      servedZoom:z,coords:{x:coords.x,y:coords.y,z:coords.z}});
-     finish(null);
-    };
-    image.onerror=()=>{if(!completed)tryLevel(z-1);};
-    image.src=url(z,x,y);
+    done(null,tile);
    };
-   tryLevel(coords.z);
+   tile.onload=()=>{
+    if(isUnavailableEsriTile(tile))unavailable();
+    else done(null,tile);
+   };
+   tile.onerror=unavailable;
+   tile.src=this.getTileUrl(coords);
    return tile;
   }
  });
- return new Layer({tileSize:TILE,maxZoom:19,minZoom:2,keepBuffer:2,
-  attribution:'Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community'});
+ const middle=new DetailLayer(URL,{
+  minZoom:14,maxZoom:19,maxNativeZoom:16,fallbackZoom:13,
+  zIndex:2,keepBuffer:2,attribution
+ });
+ const high=new DetailLayer(URL,{
+  minZoom:17,maxZoom:19,fallbackZoom:16,
+  zIndex:3,keepBuffer:1,attribution
+ });
+ const satellite=L.layerGroup([base,middle,high]);
+ const propagate=e=>satellite.fire('imageryfallback',e);
+ middle.on('imageryfallback',propagate);
+ high.on('imageryfallback',propagate);
+ return satellite;
 }
-
 function initializeLeaflet() {
   if (window.L) return Promise.resolve(window.L);
   if (window.__asuraLeaflet) return window.__asuraLeaflet;
@@ -694,7 +700,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         </div>
         <p>{imageryMeta?.success&&imageryMeta.sourceProvider?
           'Source: '+imageryMeta.sourceProvider+(imageryMeta.sourceName?' / '+imageryMeta.sourceName:'')+'. ':
-          ''}This historical image has finite native detail. Unavailable high-zoom source tiles are replaced with lower-zoom imagery where possible, not AI-enhanced or fabricated. More magnification cannot reveal smaller objects.</p>
+          ''}This historical mosaic has finite native detail. Standard Leaflet imagery tiles maintain complete map coverage, and missing high-resolution Esri tiles become transparent so valid lower-resolution images remain visible. This does not create new detail.</p>
         {imageryMeta&&!imageryMeta.success&&<p className="text-amber-900">
           {imageryMeta.error||'Imagery acquisition date is unverified'}</p>}
       </div>}
