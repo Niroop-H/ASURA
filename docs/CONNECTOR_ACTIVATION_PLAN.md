@@ -3,7 +3,7 @@ _Updated 12 November 2026. A connector is not an operationally approved observat
 
 ## Verified code presence versus actual access
 
-The on-demand public-source assurance API registers **17** source contracts. Those contracts describe checks; they do not guarantee upstream availability. Some publishers can reject datacenter requests, throttle, change schemas, or omit timestamps.
+The on-demand public-source assurance API registers **19** source contracts. Those contracts describe checks; they do not guarantee upstream availability. Some publishers can reject datacenter requests, throttle, change schemas, or omit timestamps.
 
 | Source ID | What code actually retrieves | Scope / important limitation | Release posture |
 |---|---|---|---|
@@ -24,6 +24,8 @@ The on-demand public-source assurance API registers **17** source contracts. Tho
 | treasury_debt | US Treasury debt-to-the-penny API | Published accounting balances, exact USD decimal strings; not tick data | Read-only integration; runtime checks required |
 | dvids_news | DVIDS public media news search | Official published releases; requires registered DVIDS_API_KEY | BLOCKED without key |
 | imf_portwatch_daily | IMF PortWatch ArcGIS Daily_Ports_Data table | Small delayed port-level sample only; no AIS tracks or worldwide aggregate | BLOCKED pending written reuse permission |
+| sec_suspensions | SEC official trading suspension RSS notices | Publication of enforcement action, not exchange status or tick data | Read-only metadata; runtime checks required |
+| noaa_ndbc_buoy | NOAA NDBC fixed buoy 46042 meteorological readings | Provisional wind speed (m/s), significant wave height (m); one offshore station only | Read-only; runtime checks required |
 
 All 17 sources are available to the **readiness probe**. The AI source selector can request sources by name, but the assistant must show publisher versus retrieval timestamps and evidence links rather than assert they are verified in production.
 
@@ -85,7 +87,7 @@ All 17 sources are available to the **readiness probe**. The AI source selector 
 
 ## Real-provider smoke monitoring (code-only, no production deployment)
 
-The automated `.github/workflows/public-source-smoke.yml` GitHub Actions check executes `scripts/probe-public-feeds.mjs` four times daily (scheduled GitHub runs are best-effort, not a guaranteed SLA) and on manual dispatch. This lightweight Node runner requests 14 previously allowlisted public endpoints in bounded groups of three with 10-second per-source timeouts. Trading-halt, DVIDS, and PortWatch commercial reuse/credential-gated integrations are intentionally excluded.
+The automated `.github/workflows/public-source-smoke.yml` GitHub Actions check executes `scripts/probe-public-feeds.mjs` four times daily (scheduled GitHub runs are best-effort, not a guaranteed SLA) and on manual dispatch. This lightweight Node runner requests 16 previously allowlisted public endpoints in bounded groups of three with 10-second per-source timeouts. Trading-halt, DVIDS, and PortWatch commercial reuse/credential-gated integrations are intentionally excluded.
 
 Each report stores a transport state, content freshness, reason, retrieval time, elapsed milliseconds, sample count and two checksums. It does **not** store records or credentialed provider responses. Workflow artifacts are retained for 30 days, subject to GitHub storage policies. Success of the workflow means the monitoring script completed; an individual source may still be DOWN or STALE, and the exact source-level result must be inspected.
 
