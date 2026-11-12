@@ -156,7 +156,7 @@ function CameraDetail({camera,onAdd}){
     {camera.imageUrl&&['Caltrans CWWP2','TfL JamCams'].includes(camera.provider)&&
       <a href={'/agent?'+new URLSearchParams({camera:camera.id,cameraTitle:camera.title}).toString()}
        className="rounded border border-sky-300 text-sky-700 px-3 py-2 text-xs font-medium">
-       Ask ASURA to analyze snapshot
+       Select snapshot — ask DEVASHRI your question
       </a>}
     {sourceLink(camera)&&<a href={sourceLink(camera)} target="_blank" rel="noopener noreferrer"
       className="text-xs text-sky-700 underline flex items-center gap-1">Original operator/provider <ExternalLink size={13}/></a>}
