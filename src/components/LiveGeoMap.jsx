@@ -27,7 +27,12 @@ const valid = r => r && Number.isFinite(r.lat) && Number.isFinite(r.lon)
   && Math.abs(r.lat) <= 90 && Math.abs(r.lon) <= 180;
 const validCoords = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) &&
   Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
-const planeSVG = '<svg aria-hidden="true" viewBox="0 0 32 36" width="31" height="35" xmlns="http://www.w3.org/2000/svg"><path d="M16 1 C14.7 1 13.8 2.6 13.8 5 L13.8 13.3 2 21 L2 25.3 13.8 21.8 13.8 29.6 9.1 32 9.1 35 16 33.1 22.9 35 22.9 32 18.2 29.6 18.2 21.8 30 25.3 30 21 18.2 13.3 18.2 5 C18.2 2.6 17.3 1 16 1Z" fill="#0284c7" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+const AIRCRAFT_PATH='M16 1 C14.7 1 13.8 2.6 13.8 5 L13.8 13.3 2 21 L2 25.3 13.8 21.8 13.8 29.6 9.1 32 9.1 35 16 33.1 22.9 35 22.9 32 18.2 29.6 18.2 21.8 30 25.3 30 21 18.2 13.3 18.2 5 C18.2 2.6 17.3 1 16 1Z';
+const planeSVG='<svg aria-hidden="true" viewBox="0 0 32 36" width="31" height="35" xmlns="http://www.w3.org/2000/svg"><path d="'+AIRCRAFT_PATH+'" fill="#0284c7" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+function AircraftSymbol({onGround=false,size=24}){
+ return <svg aria-hidden="true" viewBox="0 0 32 36" width={size} height={size} className="shrink-0"
+  role="img"><path d={AIRCRAFT_PATH} fill={onGround?'#c27803':'#0284c7'} stroke="white" strokeWidth="1.4"/></svg>;
+}
 function airplaneIcon(L, heading, highlight) {
   const degrees = Number.isFinite(heading) ? ((heading % 360) + 360) % 360 : 0;
   const size = highlight ? 40 : 32;
@@ -127,7 +132,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         ? [queryCenter.lat,queryCenter.lon]
         : (REGIONS[region]?.coords || REGIONS.bengaluru.coords);
       const map = L.map(target.current, { zoomControl: true, worldCopyJump: true, preferCanvas: true })
-        .setView(firstCenter, 8, {animate:false});
+        .setView(firstCenter, 6, {animate:false});
       mapRef.current = map;
       tileRef.current = {
         street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -167,7 +172,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
 
   useEffect(() => {
     if (dimension !== '2D' || !mapReady || !REGIONS[region]) return;
-    move2D(REGIONS[region].coords[0], REGIONS[region].coords[1], 8);
+    move2D(REGIONS[region].coords[0], REGIONS[region].coords[1], 6);
   }, [region, mapReady, dimension]);
   useEffect(() => {
     if (!mapReady || !coverageRef.current) return;
@@ -244,6 +249,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           d.id === 'flights' && r.aircraftType ? 'Aircraft: ' + r.aircraftType : null,
           d.id === 'flights' && Number.isFinite(r.altitudeFeet) ? 'Altitude: ' + Math.round(r.altitudeFeet).toLocaleString() + ' ft' : null,
           d.id === 'flights' && Number.isFinite(r.speedKnots) ? 'Ground speed: ' + Math.round(r.speedKnots) + ' knots' : null,
+          d.id === 'flights' && Number.isFinite(r.heading) ? 'Reported track: ' + Math.round(r.heading) + '°' : null,
+          d.id === 'flights' && typeof r.onGround==='boolean' ? (r.onGround?'Reported on ground':'Reported airborne') : null,
+          d.id === 'flights' && Number.isFinite(r.ageSeconds)?'Age when fetched: '+r.ageSeconds+' seconds':null,
+          d.id === 'flights' ? 'Receiver report, not a confirmed flight status or arrival' : null,
           'Position time: ' + when(r.observedAt),
         ].filter(Boolean)) {
           const p = document.createElement('div');
@@ -356,6 +365,18 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     setQueryCenter({ lat: Math.round(record.lat * 100) / 100, lon: Math.round(record.lon * 100) / 100 });
     setRegion('custom');
   };
+  const fitAircraft = () => {
+    const L=window.L, map=mapRef.current;
+    if(!L||!map||!flights.length)return;
+    const coords=flights.filter(valid).slice(0,900).map(r=>[r.lat,r.lon]);
+    if(!coords.length)return;
+    const box=map.getContainer().getBoundingClientRect();
+    if(box.width<40||box.height<40)return;
+    try{
+      map.stop();map.invalidateSize({pan:false,animate:false});
+      map.fitBounds(L.latLngBounds(coords),{padding:[25,25],maxZoom:9,animate:false});
+    }catch(error){setMapError('Cannot fit current observations: '+error.message);}
+  };
   const loadCurrentArea = () => {
     if (dimension === '3D') {
       if (!globeCenter || !Number.isFinite(globeCenter.lat) || Math.abs(globeCenter.lat) > 90) return;
@@ -403,6 +424,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           {dimension==='2D' && <button onClick={() => setBasemap('street')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'street' ? 'bg-slate-900 text-white' : 'bg-white')}>Street</button>}
           {dimension==='2D' && <button onClick={() => setBasemap('satellite')} type="button" className={'px-3 py-2 rounded border text-xs ' + (basemap === 'satellite' ? 'bg-slate-900 text-white' : 'bg-white')}>Satellite</button>}
           <button onClick={loadCurrentArea} type="button" className="px-3 py-2 rounded border text-xs bg-sky-700 text-white">Load aircraft at map center</button>
+          {dimension==='2D'&&<button onClick={fitAircraft} disabled={!flights.length}
+            type="button" className="px-3 py-2 rounded border text-xs bg-white disabled:opacity-50">Fit reported aircraft</button>}
           <button onClick={() => setRefresh(n => n + 1)} type="button" className="px-3 py-2 rounded border text-xs">Refresh feeds</button>
         </div>
       </div>
@@ -446,6 +469,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           </select>
         </label>
         <span className="text-xs text-slate-500">Checked: {when(lastChecked)}</span>
+        {flightData?.success&&<span className="text-xs text-slate-600">Provider snapshot: {when(flightData.providerTime)}</span>}
         <span className="text-xs text-slate-600">
           Query center: {loadedCenter.lat.toFixed(2)}°, {loadedCenter.lon.toFixed(2)}° · 250 nautical mile radius
         </span>
@@ -497,13 +521,16 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           {visibleFlights.slice(0, 500).map(r => <button key={r.id} type="button" onClick={() => selectAircraft(r)}
             className={'w-full text-left p-3 hover:bg-slate-100 ' + (selected?.source === 'flights' && selected.id === r.id ? 'bg-sky-50' : '')}>
             <div className="flex justify-between gap-3">
-              <span className="font-semibold text-sm text-slate-900">{r.title}</span>
+              <span className="flex gap-2 items-center font-semibold text-sm text-slate-900">
+                <AircraftSymbol onGround={r.onGround} size={22}/>{r.title}
+              </span>
               <span className="text-xs text-slate-500">{r.aircraftType || 'Type unavailable'}</span>
             </div>
             <div className="text-xs text-slate-600 mt-1">{r.registration || r.icao24 || 'Registration not reported'}
               {' · '}{Number.isFinite(r.altitudeFeet) ? Math.round(r.altitudeFeet).toLocaleString() + ' ft' : 'Altitude unavailable'}
             </div>
-            <div className="text-xs text-slate-500">{Number.isFinite(r.speedKnots) ? Math.round(r.speedKnots) + ' kt' : 'Speed unavailable'} · {when(r.observedAt)}</div>
+            <div className="text-xs text-slate-500">{Number.isFinite(r.speedKnots) ? Math.round(r.speedKnots) + ' kt' : 'Speed unavailable'} · {when(r.observedAt)}
+              {Number.isFinite(r.positionAgeSeconds)?' · '+r.positionAgeSeconds+'s old when fetched':''}</div>
           </button>)}
           {!visibleFlights.length && <div className="p-4 text-sm text-slate-500">{flightData?.success ? 'No matching aircraft in the current feed.' : 'No verified aircraft records available.'}</div>}
         </div>
@@ -514,7 +541,9 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       {current ? <>
         <div className="flex flex-wrap gap-3 items-start justify-between mb-3">
           <div>
-            <div className="font-bold text-lg">{current.title}</div>
+            <div className="font-bold text-lg flex gap-2 items-center">{selected?.source==='flights'&&
+                <AircraftSymbol onGround={current.onGround} size={30}/>}
+                {current.title}</div>
             <div className="text-xs text-slate-500">{current.source} · Last provider observation {when(current.observedAt)}</div>
           </div>
           {current.url && <a target="_blank" rel="noopener noreferrer" className="text-xs text-sky-700 underline" href={current.url}>View source record</a>}
@@ -531,13 +560,19 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           <Datum label="Vertical rate" value={display(current.verticalRateFpm, current.verticalRateFpm != null ? ' ft/min' : '')}/>
           <Datum label="Origin" value={display(current.origin)}/>
           <Datum label="Destination" value={display(current.destination)}/>
-          <Datum label="Position age at retrieval" value={display(current.ageSeconds, current.ageSeconds != null ? ' s' : '')}/>
+          <Datum label="Position age at retrieval" value={display(current.positionAgeSeconds??current.ageSeconds,
+              (current.positionAgeSeconds??current.ageSeconds)!=null?' s':'')}/>
           <Datum label="Squawk" value={display(current.squawk)}/>
           <Datum label="Latitude" value={current.lat.toFixed(5)}/>
           <Datum label="Longitude" value={current.lon.toFixed(5)}/>
           <Datum label="Last position" value={when(current.observedAt)}/>
+          {selected?.source==='flights'&&<Datum label="Ground status" value={typeof current.onGround==='boolean'?
+            (current.onGround?'Reported on ground':'Reported airborne'):'Not reported'}/>}
         </div>
         {current.faFlightId && <p className="text-xs text-slate-500 mt-3">FlightAware flight ID: {current.faFlightId}</p>}
+        {selected?.source==='flights'&&<p className="text-xs text-slate-500 mt-2">
+          These are receiver-reported aircraft observations, not a certified live flight track, airline route or landing confirmation.
+        </p>}
       </> : <p className="text-sm text-slate-500">Select an aircraft silhouette or an item from the aircraft list to see details. Only fields the provider supplies will be shown.</p>}
     </div>
     {routeOverlay && <div className="p-3 border-t text-xs text-slate-600 space-y-1">
