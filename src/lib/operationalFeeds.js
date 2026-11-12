@@ -245,14 +245,24 @@ function fcdoCountry(question){
 }
 function fcdoAdvice(text){
  const data=JSON.parse(text);
- if(data?.schema_name!=='travel_advice'||typeof data.title!=='string'||
-    typeof data.web_url!=='string'||!data.web_url.startsWith('https://www.gov.uk/'))
+ if(data?.schema_name!=='travel_advice'||data.document_type&&data.document_type!=='travel_advice'||
+    typeof data.title!=='string'||!data.title.trim())
   throw Error('FCDO travel advice schema mismatch');
+ // GOV.UK Content API includes base_path but can omit web_url at the root.
+ // Never invent a cross-site URL: canonicalize only under the official advice path.
+ const canonical=typeof data.web_url==='string'&&data.web_url.trim()?
+  data.web_url:'https://www.gov.uk'+String(data.base_path||'');
+ let url;
+ try{url=new URL(canonical)}catch{throw Error('FCDO canonical travel advice URL invalid')}
+ if(url.protocol!=='https:'||url.hostname!=='www.gov.uk'||
+    !/^\/foreign-travel-advice\/[a-z-]+$/.test(url.pathname)||
+    url.username||url.password||url.search||url.hash)
+  throw Error('FCDO canonical travel advice URL invalid');
  const published=iso(data.public_updated_at);
  const description=noHtml(data.description||'');
  return {records:[record('fcdo_travel','fcdo_travel',data.title,
   description||'Official UK FCDO travel advice page. Recheck the full advice before travel.',
-  data.web_url,published,0,{dataCategory:'country-level-public-travel-advice'})],
+  url.href,published,0,{dataCategory:'country-level-public-travel-advice'})],
   sourceCount:1,sourceTime:published,
   note:'Country-level UK government advice; publication date is not a live risk sensor. Read the latest full country advice and local authority notices.'};
 }
