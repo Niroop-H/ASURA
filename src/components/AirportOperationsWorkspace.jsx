@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState} from 'react';
+import {Plane} from 'lucide-react';
 
 const fmt=x=>x&&!Number.isNaN(Date.parse(x))?new Date(x).toLocaleString():'Not reported';
 const code=a=>a?.icao||a?.iata||a?.id||'';
@@ -210,11 +211,19 @@ export default function AirportOperationsWorkspace({map}){
    <div className="border-t pt-3">
     <h4 className="font-semibold text-sm mb-2">Broadcasting aircraft near selected airport</h4>
     <p className="text-xs text-slate-500 mb-2">Within 250 nautical miles, regardless of origin or destination. Select a plane to follow its available position updates.</p>
-    {nearby?.success?<><p className="text-xs mb-2">{nearby.count} aircraft · {nearby.provider} · {fmt(nearby.retrievedAt)}</p>
+    {nearby?.success?<><p className="text-xs mb-2">{nearby.count} reported aircraft positions · {nearby.provider} · Retrieved {fmt(nearby.retrievedAt)}
+      {nearby.providerTime?' · Source snapshot '+fmt(nearby.providerTime):''}
+     </p>
      <div className="max-h-64 overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-2">
       {nearby.records.slice(0,75).map(r=><button type="button" key={r.id} onClick={()=>selectNearby(r)} className="border rounded p-2 text-left text-xs hover:bg-sky-50">
-       <b>{r.title}</b> · {r.aircraftType||'Unknown type'}
-       <span className="block text-slate-500">{r.altitudeFeet==null?'Altitude unreported':Math.round(r.altitudeFeet)+' ft'} · {fmt(r.observedAt)}</span>
+       <span className="flex items-center gap-2 font-semibold"><Plane size={17} className="text-sky-700 shrink-0"/>{r.title}</span>
+       <span className="block text-slate-700">{r.aircraftType||'Aircraft type not reported'} · {r.registration||r.icao24||'No registration'}</span>
+       <span className="block text-slate-500">
+        {r.altitudeFeet==null?'Altitude unreported':Math.round(r.altitudeFeet)+' ft'}
+        {' · '}{Number.isFinite(r.speedKnots)?Math.round(r.speedKnots)+' kt':'Speed not reported'}
+        {' · '}{fmt(r.observedAt)}
+        {Number.isFinite(r.positionAgeSeconds)?' · '+r.positionAgeSeconds+'s old when retrieved':''}
+       </span>
       </button>)}
      </div></>:nearby&&<p className="text-xs text-amber-800">{nearby.error}</p>}
     {!origin&&<p className="text-xs">Select an airport to load real nearby aircraft.</p>}
