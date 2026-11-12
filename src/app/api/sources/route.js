@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { operationalDefinitions } from '@/lib/operationalFeeds';
+export const runtime = 'nodejs';
 import {
   getAllSources,
   addSource,
@@ -9,7 +11,7 @@ import {
 
 export async function GET() {
   try {
-    return NextResponse.json({ sources: getAllSources() });
+    return NextResponse.json({ sources: getAllSources(), operationalSources: operationalDefinitions(), operationalStatus:'registered-contracts-not-probed' });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

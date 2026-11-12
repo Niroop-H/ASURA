@@ -147,7 +147,8 @@ export async function POST(request){
   s.success&&['weather','flights','earthquakes','events','economy','fx','cyber',
    'space','business','reference','faa_nas','faa_tfr','nws_alerts',
    'fema_disasters','cisa_ics','nrc_events','noaa_swpc_kp',
-   'nasdaq_halts','federal_register','fcdo_travel'].includes(s.source)&&
+   'nasdaq_halts','federal_register','fcdo_travel','gdacs_alerts','uscg_lnm',
+   'nasa_donki','treasury_debt','dvids_news','imf_portwatch_daily'].includes(s.source)&&
   evidence.records.some(r=>r.source===s.source)&&
   (!s.contentFreshness||s.contentFreshness==='fresh'));
  const requestWeb=webResearchAllowed&&Boolean(

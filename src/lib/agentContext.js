@@ -80,7 +80,13 @@ const intent={
  noaa_swpc_kp:/\b(?:planetary k(?:p| index)|geomagnetic index|swpc|space weather index)\b/i,
  nasdaq_halts:/\b(?:nasdaq (?:trading )?halts?|trading halt notices?|trade halt rss)\b/i,
  federal_register:/\b(?:federal register|us (?:regulatory|federal) notices?|published federal rules?)\b/i,
- fcdo_travel:/\b(?:fcdo|uk (?:foreign )?travel advice|british travel advisory)\b/i
+ fcdo_travel:/\b(?:fcdo|uk (?:foreign )?travel advice|british travel advisory)\b/i,
+ gdacs_alerts:/\b(?:gdacs|global disaster alert|international disaster alerts?|multi.?hazard alerts?)\b/i,
+ uscg_lnm:/\b(?:uscg (?:local )?notices?|navcen notices?|local notice to mariners|coast guard navigation warnings?)\b/i,
+ nasa_donki:/\b(?:nasa donki|geomagnetic storm events?|space weather notifications?)\b/i,
+ treasury_debt:/\b(?:treasury public debt|us national debt|debt to the penny|total public debt outstanding)\b/i,
+ dvids_news:/\b(?:dvids|defense visual information distribution service|dod public media releases?)\b/i,
+ imf_portwatch_daily:/\b(?:portwatch daily|imf daily port trade|portwatch trade estimates?|daily port calls)\b/i
 };
 const followup=/^(?:what about|how about|and(?:\s+what about)?|same for|also for|what if)\b/i;
 export function selectAgentSources(question,mode,sources,history=[]){

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import Header from '@/components/Header';
 import SourceCard from '@/components/SourceCard';
 import {
@@ -17,6 +18,7 @@ import { DOMAINS } from '@/lib/constants';
 
 export default function SourcesPage() {
   const [sources, setSources] = useState([]);
+  const [operationalSources, setOperationalSources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedDomain, setSelectedDomain] = useState('all');
@@ -42,6 +44,7 @@ export default function SourcesPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch sources');
       setSources(data.sources || []);
+      setOperationalSources(data.operationalSources || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -158,6 +161,31 @@ export default function SourcesPage() {
           </button>
         </div>
       </div>
+
+      <section className="defense-card p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-sm text-slate-900">Official public source contracts ({operationalSources.length})</h2>
+            <p className="text-xs text-slate-600 mt-1">
+              These are implemented read-only adapters, not continuously monitored or certified live feeds.
+              Licence-gated and unconfigured sources may return BLOCKED.
+            </p>
+          </div>
+          <Link href="/readiness" className="px-3 py-2 rounded bg-slate-900 text-white text-xs font-semibold">
+            Probe source health
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {operationalSources.map(src => (
+            <article key={src.id} className="border border-slate-200 rounded p-3 space-y-1 text-xs">
+              <p className="font-semibold text-slate-900">{src.label}</p>
+              <p className="text-slate-600">{src.scope}</p>
+              <p className="font-mono text-slate-500">ID: {src.id} · Expected poll: {src.cadenceMinutes} min</p>
+              <p className="font-mono text-slate-500">Licence: {src.licenseStatus}</p>
+            </article>
+          ))}
+        </div>
+      </section>
 
       {/* Domain Filter Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-2 text-xs font-mono">

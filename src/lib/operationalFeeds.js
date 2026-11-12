@@ -17,6 +17,13 @@ const DEFINITIONS=[
  {id:'nasdaq_halts',label:'Nasdaq Trader public trading-halt RSS',domain:'finance',url:'https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts',cadenceMinutes:5,maxContentAgeMinutes:1440,scope:'Published US listed-security trading halt notices; event-driven and may be empty on non-trading days; not quotes or execution data',attribution:'Nasdaq Trader',licenseStatus:'provider-terms-review-required'},
  {id:'federal_register',label:'US Federal Register published documents',domain:'governance',url:'https://www.federalregister.gov/api/v1/documents.json?per_page=20&order=newest',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Recently published US federal regulations/notices, not proof of legally effective requirements; verify the official PDF',attribution:'Office of the Federal Register',licenseStatus:'official-public-reuse-review'},
  {id:'fcdo_travel',label:'UK FCDO country travel advice',domain:'travel',url:'https://www.gov.uk/api/content/foreign-travel-advice/india',cadenceMinutes:720,maxContentAgeMinutes:43200,scope:'Official UK travel advice for one explicitly named supported country; default readiness probe checks India only',attribution:'UK Foreign, Commonwealth & Development Office',licenseStatus:'open-government-license-review'},
+
+ {id:'gdacs_alerts',label:'GDACS public multihazard RSS headlines',domain:'humanitarian',url:'https://www.gdacs.org/contentdata/xml/rss_24h.xml',cadenceMinutes:60,maxContentAgeMinutes:2880,scope:'Published hazard alerts in last 24 hours; no geographic targeting or certified local warning',attribution:'Global Disaster Alert and Coordination System',licenseStatus:'public-attribution-disclaimer-review'},
+ {id:'uscg_lnm',label:'USCG Local Notices to Mariners RSS — single district',domain:'maritime',url:'https://public.govdelivery.com/topics/USDHSCG_111/feed.rss',cadenceMinutes:360,maxContentAgeMinutes:20160,scope:'One district notice feed, NOT comprehensive navigation warnings',attribution:'US Coast Guard NAVCEN / GovDelivery',licenseStatus:'official-public-reuse-review'},
+ {id:'nasa_donki',label:'NASA DONKI geomagnetic storm event notifications',domain:'space',url:'https://api.nasa.gov/DONKI/GST',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Published interpreted geomagnetic events; NOT localized GNSS interference data',attribution:'NASA DONKI Space Weather',licenseStatus:'us-government-public'},
+ {id:'treasury_debt',label:'US Treasury debt-to-the-penny reported balances',domain:'finance',url:'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?fields=record_date,debt_held_public_amt,intragov_hold_amt,tot_pub_debt_out_amt&sort=-record_date&page%5Bsize%5D=5',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Historical US fiscal accounting observations, not live market data',attribution:'US Treasury Bureau of the Fiscal Service',licenseStatus:'us-government-public'},
+ {id:'dvids_news',label:'DVIDS published defence media',domain:'defence',url:'https://api.dvidshub.net/search?type=news&sort=publishdate&sortdir=desc&max_results=12',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Published official news releases, not independent event confirmation; requires DVIDS_API_KEY',attribution:'Defense Visual Information Distribution Service',licenseStatus:'provider-terms-review-required'},
+ {id:'imf_portwatch_daily',label:'IMF PortWatch daily port trade estimates — permission gated',domain:'maritime',url:'https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Ports_Data/FeatureServer/0/query?where=1%3D1&outFields=date,portid,portname,portcalls,import,export&returnGeometry=false&orderByFields=date%20DESC&resultRecordCount=8&f=json',cadenceMinutes:1440,maxContentAgeMinutes:30240,scope:'Limited sample of lagged public trade estimates, not live AIS; permission needed for systematic/commercial reuse',attribution:'International Monetary Fund PortWatch',licenseStatus:'written-permission-required'},
 ];
 export const OPERATIONAL_SOURCE_IDS=DEFINITIONS.map(x=>x.id);
 export function operationalDefinitions(){return DEFINITIONS.map(x=>({...x}));}
@@ -250,6 +257,102 @@ function fcdoAdvice(text){
   note:'Country-level UK government advice; publication date is not a live risk sensor. Read the latest full country advice and local authority notices.'};
 }
 
+
+function noticeRss(text,id,category,note){
+ if(!/<rss\b/i.test(text)||!/<channel(?:\s[^>]*)?>/i.test(text))throw Error('Public RSS schema mismatch');
+ const items=xmlBlocks(text,'item');
+ const records=items.slice(0,20).map((item,i)=>{
+  const title=noHtml(xmlField(item,'title')),time=iso(xmlField(item,'pubDate'));
+  return title?record(id,id,title,'Published public notice. Refer to the official source for complete context.',
+   xmlField(item,'link'),time,i,{dataCategory:category}):null;
+ }).filter(Boolean);
+ return {records,sourceCount:items.length,sourceTime:latest(records.map(r=>r.observedAt)),
+  note:note+' No new headline is NOT an all-clear or proof of full coverage.'};
+}
+function nasaDonki(text){
+ const data=JSON.parse(text);
+ if(!Array.isArray(data))throw Error('NASA DONKI event schema mismatch');
+ const rows=data.filter(x=>x&&iso(x.startTime)).sort((a,b)=>String(b.startTime).localeCompare(String(a.startTime)));
+ if(data.length&&!rows.length)throw Error('NASA DONKI event timestamps invalid');
+ const records=rows.slice(0,12).map((x,i)=>{
+  const time=iso(x.startTime);
+  const kp=(Array.isArray(x.allKpIndex)?x.allKpIndex:[])
+   .filter(y=>y&&y.kpIndex!==null&&y.kpIndex!==undefined&&y.kpIndex!=='')
+   .map(y=>Number(y.kpIndex)).filter(n=>Number.isFinite(n)&&n>=0&&n<=9);
+  const maxKp=kp.length?Math.max(...kp):null;
+  return record('nasa_donki','nasa_donki',
+   'NASA geomagnetic storm event '+clean(x.gstID||'',45),
+   'Event started: '+time+(maxKp===null?'':'; highest reported Kp: '+maxKp)+
+   '. Event notification, not realtime GNSS-disruption monitoring.',
+   typeof x.link==='string'&&x.link.startsWith('https://')?x.link:
+   'https://kauai.ccmc.gsfc.nasa.gov/DONKI/',time,i,
+   {dataCategory:'published-space-weather-event',maxKp});
+ });
+ return {records,sourceCount:data.length,sourceTime:latest(records.map(x=>x.observedAt)),
+  note:'NASA published geomagnetic event records; absence of new events is not proof of uninterrupted GNSS.'};
+}
+function treasuryDebt(text){
+ const data=JSON.parse(text);
+ if(!data||!Array.isArray(data.data))throw Error('US Treasury debt schema mismatch');
+ const amount=v=>typeof v==='string'&&/^\d+(?:\.\d{1,2})?$/.test(v)?v:null;
+ const rows=data.data.slice(0,5).map(x=>{
+  const date=typeof x.record_date==='string'&&/^\d{4}-\d\d-\d\d$/.test(x.record_date)?
+   iso(x.record_date+'T00:00:00Z'):null;
+  const total=amount(x.tot_pub_debt_out_amt),publicHeld=amount(x.debt_held_public_amt),
+   intragov=amount(x.intragov_hold_amt);
+  if(!date||!total||!publicHeld||!intragov)throw Error('US Treasury record has invalid date or exact decimal amounts');
+  return {date,total,publicHeld,intragov};
+ });
+ const records=rows.map((x,i)=>record('treasury_debt','treasury_debt',
+  'US Treasury reported debt '+x.date.slice(0,10),
+  'Total public debt outstanding USD '+x.total+'; debt held by public USD '+x.publicHeld+
+  '; intragovernmental holdings USD '+x.intragov+
+  '. Published exact decimals (not floating-point calculations).',
+  'https://fiscaldata.treasury.gov/datasets/debt-to-the-penny/debt-to-the-penny',
+  x.date,i,{dataCategory:'published-fiscal-observation',
+   totalDebtUSD:x.total,debtHeldPublicUSD:x.publicHeld,intragovUSD:x.intragov,unit:'USD'}));
+ return {records,sourceCount:data.data.length,sourceTime:latest(rows.map(x=>x.date)),
+  note:'Published Treasury reporting date, not a continuously updating national-debt sensor. Decimal values are preserved exactly.'};
+}
+function dvidsNews(text){
+ const data=JSON.parse(text);
+ if(!data||!Array.isArray(data.results))throw Error('DVIDS search schema mismatch');
+ const rows=data.results.filter(x=>x&&x.type==='news'&&typeof x.title==='string').slice(0,12);
+ const records=rows.map((x,i)=>record('dvids_news','dvids_news',x.title,
+  'Published media release: '+noHtml(x.short_description||'').slice(0,300),
+  /^https:\/\/www\.dvidshub\.net\/news\//.test(x.url||'')?x.url:'https://www.dvidshub.net/',
+  x.date_published,i,{dataCategory:'official-published-defence-media',
+  publisherUnit:clean(x.unit_name||'',80)}));
+ return {records,sourceCount:Number(data.page_info?.total_results)||data.results.length,
+  sourceTime:latest(records.map(x=>x.observedAt)),
+  note:'DVIDS media is a publisher statement, not independently verified evidence of an occurrence.'};
+}
+function imfPortDaily(text){
+ const data=JSON.parse(text);
+ if(data?.error)throw Error('IMF ArcGIS returned an error object');
+ if(!data||!Array.isArray(data.features))throw Error('IMF daily-trade table schema mismatch');
+ const rows=data.features.slice(0,8).map(x=>{
+  const a=x?.attributes||{};
+  const date=typeof a.date==='string'&&/^\d{4}-\d\d-\d\d$/.test(a.date)?
+   iso(a.date+'T00:00:00Z'):typeof a.date==='number'?iso(a.date):null;
+  if([a.portcalls,a.import,a.export].some(v=>v===null||v===undefined||v===''))
+   throw Error('IMF daily port numeric observation missing');
+  const calls=Number(a.portcalls),imports=Number(a.import),exports=Number(a.export);
+  if(!date||typeof a.portname!=='string'||![calls,imports,exports].every(n=>Number.isFinite(n)&&n>=0))
+   throw Error('IMF daily port estimate missing valid date, port or numerical observations');
+  return {date,name:clean(a.portname,70),calls,imports,exports};
+ });
+ const records=rows.map((x,i)=>record('imf_portwatch_daily','imf_portwatch_daily',
+  'Published port estimate '+x.date.slice(0,10),
+  'Port: '+x.name+'; calls: '+x.calls+'; estimated imports: '+x.imports+
+  ' metric tonnes; estimated exports: '+x.exports+
+  ' metric tonnes. Delayed preliminary AIS-derived estimates, not vessel tracks.',
+  'https://portwatch.imf.org/',x.date,i,
+  {dataCategory:'delayed-published-port-trade-estimate'}));
+ return {records,sourceCount:data.features.length,sourceTime:latest(records.map(x=>x.observedAt)),
+  note:'A capped sample from the IMF ArcGIS table; NOT national/global totals. Requires written permission for systematic or commercial reuse.'};
+}
+
 const parse={
  faa_nas:(text)=>faaNas(text),faa_tfr:(text)=>faaTfr(JSON.parse(text)),
  nws_alerts:(text,detail)=>nws(JSON.parse(text),detail),
@@ -260,7 +363,13 @@ const parse={
  noaa_swpc_kp:(text)=>swpcKp(text),
  nasdaq_halts:(text)=>nasdaqHalts(text),
  federal_register:(text)=>federalRegister(text),
- fcdo_travel:(text)=>fcdoAdvice(text)
+ fcdo_travel:(text)=>fcdoAdvice(text),
+ gdacs_alerts:(text)=>noticeRss(text,'gdacs_alerts','published-disaster-alert','GDACS last-24h public hazard alerts.'),
+ uscg_lnm:(text)=>noticeRss(text,'uscg_lnm','published-maritime-notice','USCG district local notices.'),
+ nasa_donki:(text)=>nasaDonki(text),
+ treasury_debt:(text)=>treasuryDebt(text),
+ dvids_news:(text)=>dvidsNews(text),
+ imf_portwatch_daily:(text)=>imfPortDaily(text)
 };
 export function parseOperationalFixture(id,text,detail){
  if(!parse[id])throw Error('Unknown operational source');
@@ -295,6 +404,14 @@ async function boundedRead(url,{fetcher=fetch,timeoutMs=9000,limitBytes=MAX_BYTE
  for(const part of chunks){bytes.set(part,pos);pos+=part.byteLength}
  return new TextDecoder().decode(bytes);
 }
+function blockedOperational(definition,checkedAt,reason){
+ return {source:definition.id,success:false,records:[],checkedAt,
+  status:{source:definition.id,name:definition.label,transport:'blocked',content:'unknown',
+   checkedAt,sourceUrl:definition.url,sourceTime:null,retrievedAt:null,sourceItemFresh:false,
+   reason,scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
+   maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
+   usableForOperationalClaims:false}};
+}
 export async function getOperationalSource(id,question='',opts={}){
  const definition=defFor(id);
  if(!definition)throw Error('Unknown source ID');
@@ -310,6 +427,22 @@ export async function getOperationalSource(id,question='',opts={}){
      scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
      maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
      usableForOperationalClaims:false}};
+  }
+  if(id==='dvids_news'&&!String(process.env.DVIDS_API_KEY||'').trim())
+   return blockedOperational(definition,checkedAt,'DVIDS_API_KEY not configured. Obtain an authorized developer key.');
+  if(id==='imf_portwatch_daily'&&process.env.IMF_PORTWATCH_REUSE_AUTHORIZED!=='true')
+   return blockedOperational(definition,checkedAt,'IMF PortWatch systematic/commercial reuse permission not recorded; daily estimates are blocked.');
+  if(id==='dvids_news'){
+   const u=new URL(definition.url);
+   u.searchParams.set('api_key',String(process.env.DVIDS_API_KEY).trim());
+   target=u.toString();
+  }
+  if(id==='nasa_donki'){
+   const u=new URL(definition.url);
+   u.searchParams.set('startDate',new Date(Date.now()-7*86400000).toISOString().slice(0,10));
+   u.searchParams.set('endDate',new Date().toISOString().slice(0,10));
+   u.searchParams.set('api_key',String(process.env.NASA_API_KEY||'DEMO_KEY').trim()||'DEMO_KEY');
+   target=u.toString();
   }
   if(id==='nws_alerts'&&opts.healthProbe!==true){
    const state=requestedState(question);
@@ -328,9 +461,12 @@ export async function getOperationalSource(id,question='',opts={}){
    limitBytes:id==='cisa_ics'?8000000:MAX_BYTES});
   checkedAt=new Date().toISOString();
   const parsed=parseOperationalFixture(id,text,requested);
+  // Never leak credentials embedded in upstream query parameters to the client.
+  const scrubbed=new URL(target);scrubbed.searchParams.delete('api_key');
+  const publicSourceUrl=scrubbed.toString();
   const content=freshnessStatus(parsed.sourceTime,checkedAt,definition.maxContentAgeMinutes);
   const status={
-   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:target,pullStartedAt,
+   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:publicSourceUrl,pullStartedAt,
    sourceTime:parsed.sourceTime||null,retrievedAt:checkedAt,checkedAt,
    ageMinutes:content.ageMinutes,reason:content.reason,
    sourceCount:parsed.sourceCount,notes:parsed.note,
@@ -339,11 +475,11 @@ export async function getOperationalSource(id,question='',opts={}){
    licensing:definition.licenseStatus,provider:definition.attribution,
    // Fresh retrieval does not grant operational approval, legal licence or
    // validation. Only a documented human release board can change this flag.
-   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch'&&definition.licenseStatus!=='provider-terms-review-required',
+   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch'&&definition.licenseStatus!=='provider-terms-review-required'&&definition.licenseStatus!=='written-permission-required',
    usableForOperationalClaims:false
   };
   const records=parsed.records.map((x,i)=>({
-   ...x,id:id+':'+(i+1),retrievedAt:checkedAt,sourceUrl:target,licensing:definition.licenseStatus,
+   ...x,id:id+':'+(i+1),retrievedAt:checkedAt,sourceUrl:publicSourceUrl,licensing:definition.licenseStatus,
    freshness:content.state,sourceTime:parsed.sourceTime||null
   }));
   const digest=createHash('sha256').update(JSON.stringify({id,checkedAt,status,records})).digest('hex');
@@ -352,7 +488,7 @@ export async function getOperationalSource(id,question='',opts={}){
  }catch(e){
   checkedAt=new Date().toISOString();
   return {source:id,success:false,records:[],checkedAt,
-   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:target,pullStartedAt,
+   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:definition.url,pullStartedAt,
     checkedAt,retrievedAt:null,sourceTime:null,
     reason:clean(e.message,170),scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
     maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
@@ -360,7 +496,7 @@ export async function getOperationalSource(id,question='',opts={}){
  }
 }
 export async function probeOperationalSources(selected=OPERATIONAL_SOURCE_IDS,opts={}){
- const allowed=[...new Set(selected)].filter(x=>OPERATIONAL_SOURCE_IDS.includes(x)).slice(0,16);
+ const allowed=[...new Set(selected)].filter(x=>OPERATIONAL_SOURCE_IDS.includes(x)).slice(0,24);
  const results=await Promise.all(allowed.map(id=>getOperationalSource(id,'',{...opts,healthProbe:true})));
  return {checkedAt:new Date().toISOString(),
   coverage:'On-demand independent checks; no continuous uptime claim or durable audit log',
