@@ -18,6 +18,17 @@ function rateLimit(request){
 }
 const answerError=(error,status=502,extra={})=>
  NextResponse.json({success:false,error,...extra},{status,headers:{'Cache-Control':'no-store'}});
+const sourceOnlyAnswer=(records,checkedAt)=>{
+ const clean=s=>String(s??'').replace(/[<>\\]/g,'').slice(0,570);
+ const lines=records.slice(0,7).map(r=>
+  '- **'+clean(r.title)+'** ['+clean(r.id)+'] — '+clean(r.description)+
+  (r.observedAt?' · Source time: '+clean(r.observedAt):'')+
+  (r.url?' · Source: '+clean(r.url):''));
+ return '**The 120B reasoning model is temporarily unavailable.** '+
+  'Here are public data records retrieved directly by ASURA. This is a source extract, not an AI-generated conclusion.\n\n'+
+  lines.join('\n')+
+  '\n\n**Retrieved:** '+clean(checkedAt)+'. Coverage is partial and source freshness varies.';
+};
 const system=[
  'You are DEVASHRI, the conversational research and analysis agent inside ASURA Defense Intelligence System™. You support broad general reasoning, technical work and public-source research.',
  'Answer the user directly, naturally, and with sufficient technical depth; do not use a fixed question script, refuse unrelated questions by default, or make the user navigate to another ASURA module when an approved source can answer.',
@@ -107,10 +118,9 @@ export async function POST(request){
  const webResearchAllowed=body?.webResearch!==false&&mode!=='general';
  const explicitWeb=/\b(?:search (?:the )?web|browse (?:the )?(?:web|internet)|look (?:up|online)|web search|online search|research online)\b/i.test(message);
  const changingFact=/\b(?:latest|breaking|today|tonight|yesterday|tomorrow|right now|now|currently|this week|last week|this month|recent|upcoming|live updates?|as of|2026|current (?:president|minister|ceo|government|price|status)|news about|what happened|who is (?:the )?(?:current|president|prime minister|ceo))\b/i.test(message);
- // Give the 120B reasoning model access to web research for ANY topic.
- // It chooses whether to use browser_search for ordinary queries; for
- // genuinely time-sensitive questions we require retrieval.
- const requestWeb=webResearchAllowed;
+ // Browser search remains available for current or explicitly researched
+ // questions. Avoid spending browser-tool tokens when an authorized direct
+ // provider already returned the requested evidence.
  // Snapshot questions should not silently import unrelated default regional data.
  const retrievalQuestion=resolveFollowupQuestion(message,history);
  const active=wantsImage?[]:selectAgentSources(retrievalQuestion,mode,body?.sources,history);
@@ -132,6 +142,8 @@ export async function POST(request){
   s.success&&['weather','flights','earthquakes','events','economy','fx','cyber',
    'space','business','reference'].includes(s.source)&&
   evidence.records.some(r=>r.source===s.source));
+ const requestWeb=webResearchAllowed&&Boolean(
+  explicitWeb||body?.forceWebResearch===true||(!hasDomainSpecificEvidence&&changingFact));
  const forceWeb=requestWeb&&Boolean(explicitWeb||body?.forceWebResearch===true||
   (!hasDomainSpecificEvidence&&changingFact));
  let screenshot=null;
@@ -177,12 +189,28 @@ export async function POST(request){
     JSON.stringify(context).slice(0,21000)+
     '\n\nIf no source data was requested, simply answer conversationally. Do not manufacture current events.'},
  ];
- const result=await callGroq({messages,vision:wantsImage,maxTokens:2600,
+ const outputLimit=message.length>350||/\b(?:detailed|comprehensive|analy[sz]e|full report|compare)\b/i.test(message)
+  ?2000:1250;
+ const result=await callGroq({messages,vision:wantsImage,maxTokens:outputLimit,
   webSearch:requestWeb&&!wantsImage,forceWebSearch:forceWeb&&!wantsImage});
- if(!result.success)return answerError(result.error||'AI model unavailable',result.status||502,{
-  records:evidence.records,statuses:evidence.statuses,
-  diagnostics:result.diagnostics||null,checkedAt:evidence.checkedAt,
- });
+ if(!result.success){
+  // If the account exceeds its 120B model TPM quota, direct provider records
+  // are still valuable; return them clearly labelled without any fake AI text.
+  if(evidence.records.length>0&&!wantsImage&&!forceWeb)
+   return NextResponse.json({
+    success:true,degraded:true,answerType:'retrieved-source-records-only',
+    answer:sourceOnlyAnswer(evidence.records,evidence.checkedAt),
+    model:null,provider:'ASURA read-only source adapters',generatedAt:new Date().toISOString(),
+    records:evidence.records,statuses:evidence.statuses,checkedAt:evidence.checkedAt,
+    dataVerification:'source-records-only',
+    modelError:String(result.error||'Model unavailable').slice(0,180),
+    sourceCoverage:'Records actually retrieved from connected public sources; no model interpretation',
+   },{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+  return answerError(result.error||'AI model unavailable',result.status||502,{
+   records:evidence.records,statuses:evidence.statuses,
+   diagnostics:result.diagnostics||null,checkedAt:evidence.checkedAt,
+  });
+ }
  return NextResponse.json({
   success:true,answer:result.answer,
   model:result.model,provider:result.provider,generatedAt:result.generatedAt,
