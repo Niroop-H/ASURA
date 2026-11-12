@@ -10,6 +10,7 @@ on:
       - 'src/app/readiness/page.jsx'
       - 'src/app/api/intelligence/assurance/route.js'
       - 'tests/operationalFeeds.test.cjs'
+      - 'tests/expandedFeeds.test.cjs'
       - 'package.json'
       - '.github/workflows/operational-contracts.yml'
   pull_request:
