@@ -10,7 +10,10 @@ import {
 
 const SOURCE_OPTIONS=[
  ['news','News'],['weather','Weather'],['flights','Aircraft'],['cameras','Public cameras'],
- ['airports','Airports'],['earthquakes','Earthquakes'],['events','Earth events'],['search','Web search']
+ ['airports','Airports'],['earthquakes','Earthquakes'],['events','Earth events'],['search','Web search'],
+ ['economy','World Bank GDP & statistics'],['fx','Reference exchange rates'],
+ ['cyber','CISA exploited vulnerabilities'],['space','Space-station orbital elements'],
+ ['business','GLEIF company LEIs'],['reference','Wikidata entities']
 ];
 const REGIONS=[['bengaluru','Bengaluru'],['london','London'],['singapore','Singapore'],
  ['newyork','New York'],['dubai','Dubai']];
@@ -20,7 +23,7 @@ const examples=[
  {title:'Live aviation',prompt:'What can the public ADS-B aircraft feed currently tell us around Bengaluru?'},
  {title:'Public camera coverage',prompt:'Which authorized public camera directories are connected and what are their limitations?'},
 ];
-const readableDate=x=>{if(!x)return 'Not provided';const d=new Date(x);return Number.isFinite(d.getTime())?'Not provided':d.toLocaleString()};
+const readableDate=x=>{if(!x)return 'Not provided';const d=new Date(x);return Number.isFinite(d.getTime())?d.toLocaleString():'Not provided'};
 function SourceDetails({msg,onReview}){
  const records=Array.isArray(msg.records)?msg.records:[];
  const statuses=Array.isArray(msg.statuses)?msg.statuses:[];
@@ -98,7 +101,8 @@ export default function AgentWorkspace(){
  const [mode,setMode]=useState('auto');
  const [webResearch,setWebResearch]=useState(true);
  const [forceWebResearch,setForceWebResearch]=useState(false);
- const [sources,setSources]=useState(['news','weather','flights','cameras','airports','earthquakes','events']);
+ const [sources,setSources]=useState(['news','weather','flights','cameras','airports','earthquakes','events',
+  'economy','fx','cyber','space','business','reference']);
  const [region,setRegion]=useState('bengaluru');
  const [busy,setBusy]=useState(false);
  const [health,setHealth]=useState(null);
@@ -113,6 +117,9 @@ export default function AgentWorkspace(){
  const input=useRef(null);
  useEffect(()=>{
   const params=new URLSearchParams(window.location.search);
+  const initialQuestion=params.get('question');
+  // Prefill from another ASURA workspace; never ask the model until the user sends it.
+  if(initialQuestion&&initialQuestion.length<2400)setDraft(initialQuestion);
   const cameraId=params.get('camera')||'';
   const title=params.get('cameraTitle')||'Selected public camera';
   if(/^(?:caltrans-|tfl-)[a-zA-Z0-9 _-]{1,110}$/.test(cameraId)){
@@ -315,7 +322,11 @@ export default function AgentWorkspace(){
     </div>
     {showSettings&&<div className="rounded-lg border p-3 space-y-3 bg-slate-50">
       <p className="text-xs text-slate-600">
-       DEVASHRI uses a 120B reasoning model for text chat. Auto mode selects
+       DEVASHRI uses a 120B reasoning model for text chat across connected sectors.
+       <Link className="underline text-sky-700 ml-1" href="/intelligence">
+        See implemented versus research-only sources
+       </Link>.
+        Auto mode selects
        connected public providers and lets the model use browser research.
        Live mode fetches your selected feeds; Conversation is offline-only.
        Model training knowledge is not a verified live source.
@@ -402,6 +413,7 @@ export default function AgentWorkspace(){
      <Link href="/globe">Cesium 3D Globe</Link>
      <Link href="/weather">Worldwide Weather Explorer</Link>
      <Link href="/search">Web Search</Link>
+     <Link href="/intelligence">All public intelligence sectors & access status</Link>
     </div>
    </section>
    <div className="flex items-start gap-2 px-2 text-xs text-slate-500">
