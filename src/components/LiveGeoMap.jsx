@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import CesiumGlobe from './CesiumGlobe';
+import {Maximize2,Minimize2,ZoomIn,ZoomOut,RefreshCw,Plane} from 'lucide-react';
 
 const DOMAINS = [
   { id: 'flights', name: 'Aircraft', color: '#0284c7' },
@@ -72,7 +73,9 @@ function Datum({ label, value }) {
   </div>;
 }
 export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimension = '2D' }) {
-  const target = useRef(null), mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null), coverageRef = useRef(null), routeLayerRef = useRef(null), markersRef = useRef(new Map());
+  const target = useRef(null), mapShellRef=useRef(null),
+    mapRef = useRef(null), tileRef = useRef({}), layerRef = useRef(null),
+    coverageRef = useRef(null), routeLayerRef = useRef(null), markersRef = useRef(new Map());
   const move2D = (lat, lon, zoom = 8) => {
     const map = mapRef.current;
     if (!map || !validCoords(lat, lon) || !Number.isFinite(zoom)) return false;
@@ -82,7 +85,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     try {
       map.stop();
       map.invalidateSize({pan:false,animate:false});
-      map.setView([lat,lon],Math.max(2,Math.min(18,zoom)),{animate:false});
+      map.setView([lat,lon],Math.max(2,Math.min(23,zoom)),{animate:false});
       return true;
     } catch(error) {
       console.warn('ASURA: invalid map navigation suppressed', error.message);
@@ -95,7 +98,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
   const [routeOverlay, setRouteOverlay] = useState(null);
   const [queryCenter, setQueryCenter] = useState(null);
   const [mapViewCenter, setMapViewCenter] = useState(null);
-  const [basemap, setBasemap] = useState('street');
+  const [basemap, setBasemap] = useState('satellite');
   const [providerChoice, setProviderChoice] = useState('flights');
   const [layers, setLayers] = useState(['flights', 'earthquakes', 'events', 'weather']);
   const [responses, setResponses] = useState({});
@@ -107,6 +110,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
   const [searching, setSearching] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
+  const [fullscreenMap,setFullscreenMap]=useState(false);
+  const [zoomLevel,setZoomLevel]=useState(6);
+  const [imageryMeta,setImageryMeta]=useState(null);
+  const [pinnedAircraft,setPinnedAircraft]=useState(null);
   const [refresh, setRefresh] = useState(0);
   const [lastChecked, setLastChecked] = useState(null);
   const flightData = responses[providerChoice];
@@ -116,10 +123,61 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     return flights.filter(r => !search || [r.title, r.registration, r.aircraftType, r.origin, r.destination, r.icao24].some(value =>
       value && String(value).toLowerCase().includes(search)));
   }, [flights, filter]);
-  const current = selected?.source === 'flights'
-    ? flights.find(r => r.id === selected.id)
-    : responses[selected?.source]?.records?.find(r => r.id === selected?.id);
+  const selectedInFeed=selected?.source==='flights'?
+    flights.find(r=>r.id===selected.id):
+    responses[selected?.source]?.records?.find(r=>r.id===selected?.id);
+  const current=selectedInFeed||
+    (selected?.source==='flights'&&pinnedAircraft?.id===selected?.id?pinnedAircraft:null);
+  const aircraftMissing=Boolean(selected?.source==='flights'&&pinnedAircraft&&
+    pinnedAircraft.id===selected.id&&!selectedInFeed);
+  const ageNow=current?.observedAt?
+    Math.max(0,Math.floor((Date.now()-Date.parse(current.observedAt))/1000)):null;
+  const zoomMap=step=>{
+    const m=mapRef.current;
+    if(!m)return;
+    const next=Math.min(23,Math.max(2,m.getZoom()+step));
+    if(Number.isFinite(next))m.setZoom(next,{animate:false});
+  };
+  const toggleFullscreenMap=async()=>{
+    const shell=mapShellRef.current;
+    if(!shell)return;
+    if(document.fullscreenElement===shell){
+      try{await document.exitFullscreen();}catch{setFullscreenMap(false);}
+      return;
+    }
+    if(fullscreenMap){setFullscreenMap(false);return;}
+    // Fullscreen API where possible, fixed viewport fallback otherwise.
+    try{
+      if(!shell.requestFullscreen)throw new Error('Native fullscreen unavailable');
+      await shell.requestFullscreen();
+      setFullscreenMap(true);
+    }catch{setFullscreenMap(true);}
+  };
 
+  useEffect(()=>{
+    const sync=()=>setFullscreenMap(document.fullscreenElement===mapShellRef.current);
+    document.addEventListener('fullscreenchange',sync);
+    return()=>document.removeEventListener('fullscreenchange',sync);
+  },[]);
+  useEffect(()=>{
+    if(!fullscreenMap)return;
+    const old=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    const onKey=e=>{
+      if(e.key==='Escape'&&document.fullscreenElement!==mapShellRef.current)
+        setFullscreenMap(false);
+    };
+    document.addEventListener('keydown',onKey);
+    return()=>{document.body.style.overflow=old;document.removeEventListener('keydown',onKey)};
+  },[fullscreenMap]);
+  useEffect(()=>{
+    const m=mapRef.current;
+    if(!m||dimension!=='2D')return;
+    const update=()=>{if(mapRef.current===m)m.invalidateSize({pan:false,animate:false})};
+    const timer=setTimeout(update,140);
+    const timer2=setTimeout(update,430);
+    return()=>{clearTimeout(timer);clearTimeout(timer2)};
+  },[fullscreenMap,dimension]);
   useEffect(() => {
     if (dimension !== '2D') { setMapReady(false); return; }
     let mounted = true;
@@ -131,18 +189,23 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         : queryCenter && valid(queryCenter)
         ? [queryCenter.lat,queryCenter.lon]
         : (REGIONS[region]?.coords || REGIONS.bengaluru.coords);
-      const map = L.map(target.current, { zoomControl: true, worldCopyJump: true, preferCanvas: true })
-        .setView(firstCenter, 6, {animate:false});
+      const map = L.map(target.current, {
+        zoomControl:true,worldCopyJump:true,preferCanvas:true,
+        maxZoom:23,minZoom:2,zoomSnap:1,
+      }).setView(firstCenter,6,{animate:false});
       mapRef.current = map;
       tileRef.current = {
-        street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19, attribution: '© OpenStreetMap contributors',
+        street: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+          maxZoom:23,maxNativeZoom:19,
+          attribution:'© OpenStreetMap contributors',
         }),
-        satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-          maxZoom: 19, attribution: 'Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community',
+        satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+          maxZoom:23,maxNativeZoom:19,
+          attribution:'Imagery © Esri, Vantor, Earthstar Geographics and GIS User Community',
         }),
       };
-      tileRef.current.street.addTo(map);
+      tileRef.current.satellite.addTo(map);
+      L.control.scale({metric:true,imperial:false}).addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
       routeLayerRef.current = L.layerGroup().addTo(map);
       coverageRef.current = L.circle(firstCenter, {
@@ -154,8 +217,12 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         const p = map.getCenter();
         if (!validCoords(p.lat,p.lng)) return;
         const lon = (((p.lng + 180) % 360) + 360) % 360 - 180;
-        if (validCoords(p.lat,lon)) setMapViewCenter({ lat: p.lat, lon });
+        if (validCoords(p.lat,lon)) setMapViewCenter({
+          lat:Number(p.lat.toFixed(5)),lon:Number(lon.toFixed(5))});
+        setZoomLevel(map.getZoom());
       });
+      setMapViewCenter({lat:firstCenter[0],lon:firstCenter[1]});
+      setZoomLevel(map.getZoom());
       setMapReady(true);
       requestAnimationFrame(() => { if (mounted && mapRef.current === map) map.invalidateSize({pan:false,animate:false}); });
     }).catch(error => { if (mounted) setMapError(error.message); });
@@ -189,6 +256,38 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     tileRef.current[basemap].addTo(map);
   }, [basemap, mapReady]);
 
+  // Query the actual source metadata at the map center, never infer that a
+  // current basemap necessarily contains imagery acquired in November 2026.
+  useEffect(()=>{
+    if(dimension!=='2D'||!mapReady||basemap!=='satellite')return;
+    const map=mapRef.current;
+    if(!map)return;
+    const center=map.getCenter();
+    if(!validCoords(center.lat,center.lng))return;
+    let active=true;
+    const controller=new AbortController();
+    const timer=setTimeout(async()=>{
+      try{
+        const qs=new URLSearchParams({lat:center.lat.toFixed(4),lon:center.lng.toFixed(4)});
+        const res=await fetch('/api/imagery/metadata?'+qs,{signal:controller.signal,cache:'no-store'});
+        const data=await res.json();
+        if(!active)return;
+        setImageryMeta(data);
+        if(data.success&&Number.isFinite(data.maximumSourceZoom)&&tileRef.current.satellite){
+          const native=Math.max(0,Math.min(23,data.maximumSourceZoom));
+          const tile=tileRef.current.satellite;
+          if(tile.options.maxNativeZoom!==native){
+            tile.options.maxNativeZoom=native;
+            if(mapRef.current?.hasLayer(tile))tile.redraw();
+          }
+        }
+      }catch(error){
+        if(active&&error.name!=='AbortError')
+          setImageryMeta({success:false,error:'Image capture metadata unavailable: '+error.message});
+      }
+    },650);
+    return()=>{active=false;controller.abort();clearTimeout(timer)};
+  },[dimension,mapReady,basemap,mapViewCenter?.lat,mapViewCenter?.lon,zoomLevel]);
   useEffect(() => {
     let active = true;
     const feedNames = [providerChoice, 'earthquakes', 'events', 'weather'];
@@ -261,7 +360,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           popup.appendChild(p);
         }
         marker.bindPopup(popup);
-        marker.on('click', () => setSelected({ source: d.id, id: r.id }));
+        marker.on('click',()=>{
+          setSelected({source:d.id,id:r.id});
+          if(d.id==='flights')setPinnedAircraft(r);
+        });
         marker.addTo(group);
         byId.set(key, marker);
       }
@@ -333,6 +435,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
 
   const selectAircraft = r => {
     setSelected({ source: 'flights', id: r.id });
+    setPinnedAircraft(r);
     const marker = markersRef.current.get('flights:' + r.id);
     if (marker) {
       move2D(r.lat,r.lon,Math.max(9,mapRef.current?.getZoom()||9));
@@ -361,6 +464,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
   };
   const inspectLocated = record => {
     if (!valid(record)) return;
+    setSelected({source:'flights',id:record.id});
+    setPinnedAircraft(record);
     move2D(record.lat,record.lon,9);
     setQueryCenter({ lat: Math.round(record.lat * 100) / 100, lon: Math.round(record.lon * 100) / 100 });
     setRegion('custom');
