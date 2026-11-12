@@ -13,6 +13,7 @@ on:
       - 'tests/operationalFeeds.test.cjs'
       - 'tests/expandedFeeds.test.cjs'
       - 'tests/wave2Feeds.test.cjs'
+      - 'tests/wave3Feeds.test.cjs'
       - 'package.json'
       - '.github/workflows/operational-contracts.yml'
   pull_request:
