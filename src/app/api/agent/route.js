@@ -129,7 +129,8 @@ export async function POST(request){
  let evidence={records:[],statuses:[],checkedAt:new Date().toISOString()};
  if(active.length)evidence=await assembleAgentContext(retrievalQuestion,active,{region,weatherPoint});
  const hasDomainSpecificEvidence=evidence.statuses.some(s=>
-  s.success&&['weather','flights','earthquakes','events'].includes(s.source)&&
+  s.success&&['weather','flights','earthquakes','events','economy','fx','cyber',
+   'space','business','reference'].includes(s.source)&&
   evidence.records.some(r=>r.source===s.source));
  const forceWeb=requestWeb&&Boolean(explicitWeb||body?.forceWebResearch===true||
   (!hasDomainSpecificEvidence&&changingFact));
