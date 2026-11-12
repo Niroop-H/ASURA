@@ -3,7 +3,9 @@ import {NextResponse} from 'next/server';
 export const runtime='nodejs';
 export const maxDuration=15;
 
-const BASE='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/0/query';
+// Citation layer 4 contains sources for all zoom bands, not just the single
+// most detailed source in layer 0. Match the source actually used at map zoom.
+const BASE='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/4/query';
 const parseCoord=(value,min,max)=>{
  if(value===null||!/^[-+]?\d{1,3}(?:\.\d{1,6})?$/.test(value))return null;
  const n=Number(value);
@@ -23,6 +25,9 @@ export async function GET(request){
  const p=new URL(request.url).searchParams;
  const lat=parseCoord(p.get('lat'),-85.0511,85.0511);
  const lon=parseCoord(p.get('lon'),-180,180);
+ const zoomRaw=p.get('z');
+ const zoom=zoomRaw!==null&&/^\d{1,2}$/.test(zoomRaw)&&Number(zoomRaw)<=23?
+  Number(zoomRaw):19;
  if(lat===null||lon===null)
   return NextResponse.json({success:false,error:'Valid WGS84 latitude and longitude are required'},
    {status:400,headers:{'Cache-Control':'no-store'}});
@@ -34,23 +39,27 @@ export async function GET(request){
  q.searchParams.set('spatialRel','esriSpatialRelIntersects');
  q.searchParams.set('outFields','SRC_DATE,SRC_RES,SRC_ACC,SRC_DESC,NICE_NAME,NICE_DESC,MinMapLevel,MaxMapLevel,DrawOrder,ReleaseName');
  q.searchParams.set('returnGeometry','false');
- q.searchParams.set('resultRecordCount','10');
+ q.searchParams.set('resultRecordCount','80');
  try{
   const response=await fetch(q,{next:{revalidate:3600},signal:AbortSignal.timeout(8500)});
   if(!response.ok)throw new Error('Esri imagery metadata HTTP '+response.status);
   const json=await response.json();
   if(json.error)throw new Error('Esri imagery metadata unavailable');
   const features=(Array.isArray(json.features)?json.features:[])
-    .map(f=>f.attributes).filter(Boolean)
-    .sort((a,b)=>(Number(b.MaxMapLevel)||0)-(Number(a.MaxMapLevel)||0)
-      ||(Number(b.DrawOrder)||0)-(Number(a.DrawOrder)||0));
-  const a=features[0]||null;
+    .map(f=>f.attributes).filter(Boolean);
+  const within=features.filter(a=>Number(a.MinMapLevel)<=zoom&&Number(a.MaxMapLevel)>=zoom);
+  const atOrBelow=features.filter(a=>Number(a.MaxMapLevel)<zoom);
+  const ordered=(within.length?within:atOrBelow).sort((a,b)=>
+    (Number(b.MaxMapLevel)||0)-(Number(a.MaxMapLevel)||0)
+     ||(Number(b.DrawOrder)||0)-(Number(a.DrawOrder)||0));
+  const a=ordered[0]||null;
   const finite=v=>v!==null&&v!==undefined&&Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<99999?Number(v):null;
   const level=finite(a?.MaxMapLevel);
   const resolution=finite(a?.SRC_RES);
   const data={
-   success:true,provider:'Esri World Imagery',lat,lon,
+   success:true,provider:'Esri World Imagery',lat,lon,requestedZoom:zoom,
    available:!!a,
+   digitallyEnlarged:!!a&&zoom>Number(a.MaxMapLevel),
    acquiredOn:acquisitionDate(a?.SRC_DATE),
    sourceName:safeLabel(a?.NICE_NAME),sourceProvider:safeLabel(a?.NICE_DESC),
    sourceProduct:safeLabel(a?.SRC_DESC),
@@ -59,8 +68,8 @@ export async function GET(request){
    maximumSourceZoom:level===null?null:Math.min(23,Math.max(0,Math.round(level))),
    mapRelease:safeLabel(a?.ReleaseName),
    checkedAt:new Date().toISOString(),
-   type:'Esri source metadata at the requested point; not live imagery',
-   note:'Capture date is not the map publication date. Mosaic capture dates and native resolution change with location and map scale. Values are unavailable if the provider does not report them.',
+   type:'Esri zoom-specific imagery source metadata; not live imagery',
+   note:'Metadata is matched to the map zoom and center. If zoom exceeds the local source maximum, pixels are enlarged without new detail. Capture dates are not release dates; exact pixels can differ at mosaic seams.',
    attribution:'Esri, Vantor, Earthstar Geographics, and the GIS User Community',
    reference:'https://support.esri.com/en-us/knowledge-base/how-to-view-the-world-imagery-basemap-metadata-in-arcgi-000018129',
   };
