@@ -24,6 +24,8 @@ const DEFINITIONS=[
  {id:'treasury_debt',label:'US Treasury debt-to-the-penny reported balances',domain:'finance',url:'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?fields=record_date,debt_held_public_amt,intragov_hold_amt,tot_pub_debt_out_amt&sort=-record_date&page%5Bsize%5D=5',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Historical US fiscal accounting observations, not live market data',attribution:'US Treasury Bureau of the Fiscal Service',licenseStatus:'us-government-public'},
  {id:'dvids_news',label:'DVIDS published defence media',domain:'defence',url:'https://api.dvidshub.net/search?type=news&sort=publishdate&sortdir=desc&max_results=12',cadenceMinutes:360,maxContentAgeMinutes:10080,scope:'Published official news releases, not independent event confirmation; requires DVIDS_API_KEY',attribution:'Defense Visual Information Distribution Service',licenseStatus:'provider-terms-review-required'},
  {id:'imf_portwatch_daily',label:'IMF PortWatch daily port trade estimates — permission gated',domain:'maritime',url:'https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Ports_Data/FeatureServer/0/query?where=1%3D1&outFields=date,portid,portname,portcalls,import,export&returnGeometry=false&orderByFields=date%20DESC&resultRecordCount=8&f=json',cadenceMinutes:1440,maxContentAgeMinutes:30240,scope:'Limited sample of lagged public trade estimates, not live AIS; permission needed for systematic/commercial reuse',attribution:'International Monetary Fund PortWatch',licenseStatus:'written-permission-required'},
+ {id:'sec_suspensions',label:'SEC official trading-suspension notices',domain:'finance',url:'https://www.sec.gov/enforcement-litigation/trading-suspensions/rss',cadenceMinutes:360,maxContentAgeMinutes:43200,scope:'SEC enforcement announcements; a published suspension notice is not a live exchange halt or tradable-price feed',attribution:'US Securities and Exchange Commission',licenseStatus:'official-public-reuse-review'},
+ {id:'noaa_ndbc_buoy',label:'NOAA NDBC buoy 46042 meteorological observations',domain:'weather',url:'https://www.ndbc.noaa.gov/data/realtime2/46042.txt',cadenceMinutes:60,maxContentAgeMinutes:240,scope:'One fixed public offshore buoy station (46042), not worldwide ocean conditions; provisional automatically quality-controlled observations',attribution:'NOAA National Data Buoy Center',licenseStatus:'us-government-public'},
 ];
 export const OPERATIONAL_SOURCE_IDS=DEFINITIONS.map(x=>x.id);
 export function operationalDefinitions(){return DEFINITIONS.map(x=>({...x}));}
@@ -363,6 +365,49 @@ function imfPortDaily(text){
   note:'A capped sample from the IMF ArcGIS table; NOT national/global totals. Requires written permission for systematic or commercial reuse.'};
 }
 
+
+function ndbcStation(text){
+ const rows=String(text).trim().split(/\r?\n/).filter(Boolean);
+ const header=rows.find(row=>/^#(?:YY|yr)\s+MM\s+DD\s+hh\s+mm\b/i.test(row));
+ if(!header)throw Error('NOAA NDBC observations header mismatch');
+ const cols=header.replace(/^#/,'').trim().split(/\s+/);
+ const indices=Object.fromEntries(cols.map((name,i)=>[name,i]));
+ const needed=['WSPD','WVHT'];
+ for(const name of needed)if(!Number.isInteger(indices[name]))throw Error('NOAA NDBC required observation column missing: '+name);
+ const values=[];
+ for(const row of rows){
+  if(row.startsWith('#'))continue;
+  const cells=row.trim().split(/\s+/);
+  if(cells.length<cols.length)continue;
+  const y=Number(cells[0]),mo=Number(cells[1]),d=Number(cells[2]),
+   h=Number(cells[3]),minute=Number(cells[4]);
+  if(![y,mo,d,h,minute].every(Number.isInteger)||
+     y<2000||y>2100||mo<1||mo>12||d<1||d>31||h<0||h>23||minute<0||minute>59)continue;
+  const date=iso(String(y)+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0')+
+   'T'+String(h).padStart(2,'0')+':'+String(minute).padStart(2,'0')+':00Z');
+  if(!date)continue;
+  const valid=v=>v==='MM'||v==='99.0'||v==='999.0'||v==='9999.0'?null:
+   Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<100?Number(v):null;
+  const speed=valid(cells[indices.WSPD]),height=valid(cells[indices.WVHT]);
+  if(speed===null&&height===null)continue;
+  values.push({date,speed,height});
+  if(values.length>=15)break;
+ }
+ if(!values.length)throw Error('NOAA NDBC has no valid timestamped meteorological observations');
+ values.sort((a,b)=>b.date.localeCompare(a.date));
+ const selected=values.slice(0,8);
+ const records=selected.map((x,i)=>record('noaa_ndbc_buoy','noaa_ndbc_buoy',
+  'NOAA buoy 46042 observation '+x.date,
+  'Station 46042; observed wind speed: '+(x.speed===null?'unavailable':x.speed+' m/s')+
+   '; significant wave height: '+(x.height===null?'unavailable':x.height+' m')+
+   '. Provisional station measurements; check station page for QC flags.',
+  'https://www.ndbc.noaa.gov/station_page.php?station=46042',x.date,i,
+  {dataCategory:'published-offshore-weather-observation',
+   windSpeedMs:x.speed,waveHeightM:x.height}));
+ return {records,sourceTime:selected[0].date,sourceCount:values.length,
+  note:'Fixed offshore station only. NDBC recent files are provisional; missing measurements are not zero. Not a navigation or maritime-safety clearance.'};
+}
+
 const parse={
  faa_nas:(text)=>faaNas(text),faa_tfr:(text)=>faaTfr(JSON.parse(text)),
  nws_alerts:(text,detail)=>nws(JSON.parse(text),detail),
@@ -379,7 +424,9 @@ const parse={
  nasa_donki:(text)=>nasaDonki(text),
  treasury_debt:(text)=>treasuryDebt(text),
  dvids_news:(text)=>dvidsNews(text),
- imf_portwatch_daily:(text)=>imfPortDaily(text)
+ imf_portwatch_daily:(text)=>imfPortDaily(text),
+ sec_suspensions:(text)=>noticeRss(text,'sec_suspensions','published-market-enforcement-notice','SEC official trading suspension announcements only; NOT live halt status'),
+ noaa_ndbc_buoy:(text)=>ndbcStation(text)
 };
 export function parseOperationalFixture(id,text,detail){
  if(!parse[id])throw Error('Unknown operational source');
