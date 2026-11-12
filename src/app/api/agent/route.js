@@ -175,8 +175,11 @@ export async function POST(request){
   webResearch:{requested:result.webSearchRequested===true,
    required:result.webSearchRequired===true,
    executedVerified:result.webSearchExecuted===true,
-   note:result.webSearchRequested?
-    'Browser search was enabled for this request; use source URLs and timestamps in the answer to evaluate individual claims.':
+   sources:Array.isArray(result.webSources)?result.webSources:[],
+   note:result.webSearchExecuted===true?
+    'Groq reports browser_search tool execution. Check linked sources and publication dates.':
+    result.webSearchRequested?
+    'Browser search was offered, but execution was not confirmed. Do not treat claims as verified live web results.':
     'No live web browser tool was requested in this reply.'},
   records:evidence.records,statuses:evidence.statuses,checkedAt:evidence.checkedAt,
   snapshotReviewed:screenshot?.success?{
