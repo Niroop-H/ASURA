@@ -50,9 +50,10 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   model,temperature:useSearch?0.2:vision?0.2:0.35,
   max_completion_tokens:Math.min(3600,Math.max(500,Number(maxTokens)||1700)),
   reasoning_effort:useSearch?'low':vision?'low':'medium',
-  citation_options:'enabled',
  };
- if(vision)delete base.citation_options;
+ // GPT-OSS 120B supports hosted browser_search, but rejects citation_options.
+ // Inspect executed_tools for actual sources instead of requesting unsupported
+ // citation metadata.
  const researchInstruction={
   role:'system',content:'For the current question, retrieve fresh public sources using browser_search before answering. '+
    'Do not give a memorized answer pretending to be live. Report source URLs and publication or observation dates. '+
