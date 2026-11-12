@@ -8,7 +8,8 @@
     "build": "node ./node_modules/next/dist/bin/next build",
     "start": "node ./node_modules/next/dist/bin/next start",
     "lint": "node ./node_modules/next/dist/bin/next lint",
-    "validate-keys": "node scripts/validate-keys.js"
+    "validate-keys": "node scripts/validate-keys.js",
+    "test:operational": "node --test tests/operationalFeeds.test.cjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
