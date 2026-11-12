@@ -86,6 +86,8 @@ export default function AgentWorkspace(){
  const [messages,setMessages]=useState([]);
  const [draft,setDraft]=useState('');
  const [mode,setMode]=useState('auto');
+ const [webResearch,setWebResearch]=useState(true);
+ const [forceWebResearch,setForceWebResearch]=useState(false);
  const [sources,setSources]=useState(['news','weather','flights','cameras','airports','earthquakes','events']);
  const [region,setRegion]=useState('bengaluru');
  const [busy,setBusy]=useState(false);
@@ -136,13 +138,14 @@ export default function AgentWorkspace(){
     method:'POST',cache:'no-store',signal:ac.signal,
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({message:question,history:previous.slice(-10),
-     mode,sources,region,...extra,
+     mode,sources,region,webResearch,forceWebResearch,...extra,
      ...(camera?{reviewCamera:true,cameraId:camera.id}:{})}),
    });
    const d=await r.json();
    setMessages(m=>[...m,{id:Date.now()+'a',role:'assistant',content:d.answer||'',
     error:d.success?null:d.error||'AI response unavailable',model:d.model||null,
     records:d.records||[],statuses:d.statuses||[],snapshotReviewed:d.snapshotReviewed||null,
+    webResearch:d.webResearch||null,
     checkedAt:d.checkedAt||null,generatedAt:d.generatedAt||null,
     dataVerification:d.dataVerification||null,answerType:d.answerType||null,
     externalBoardUrl:d.externalBoardUrl||null,airport:d.airport||null}]);
@@ -188,7 +191,7 @@ export default function AgentWorkspace(){
     </div>
    </header>
    {health&&!health.ready&&<div role="alert" className="px-5 py-3 bg-amber-50 text-amber-900 text-xs border-b">
-    AI provider is not ready: {health.error||'No supported model available'}.
+    ASURA large reasoning model unavailable: {health.error||'120B access not configured'}.
     Check your server-side Groq key and model permissions in <Link className="underline" href="/keys">API Key Holders</Link>.
    </div>}
    <div className="flex-1 px-4 md:px-6 py-6 bg-slate-50 min-h-[380px] max-h-[68vh] overflow-y-auto space-y-5">
@@ -239,7 +242,9 @@ export default function AgentWorkspace(){
       <div className="text-center space-y-2">
        <div className="text-3xl font-semibold text-slate-900">What would you like to explore?</div>
        <p className="text-sm text-slate-600">
-        Talk naturally with DEVASHRI, ask for connected recent observations, or investigate public data with source references.
+        ASURA Defense Intelligence System™ combines 120B-model reasoning
+        with connected public feeds and on-demand web research. Ask a natural question;
+        supporting source records and timestamps are shown when available.
        </p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
@@ -257,7 +262,10 @@ export default function AgentWorkspace(){
       {msg.role==='assistant'?<RichAgentAnswer text={msg.content}/>:<p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>}
       {msg.error&&<p role="alert" className="bg-amber-50 text-amber-900 p-3 text-xs rounded border border-amber-100">{msg.error}</p>}
       {msg.role==='assistant'&&<div className="pt-1 flex flex-wrap gap-3 items-center">
-       {msg.model&&<span className="text-[11px] text-slate-400">{msg.model}</span>}
+       {msg.model&&<span className="text-[11px] text-slate-600 font-medium">Model: {msg.model}</span>}
+       {msg.webResearch?.requested&&<span className="text-[11px] text-sky-800">
+        Browser research {msg.webResearch.required?'required':'available'} · check cited URLs
+       </span>}
        {msg.generatedAt&&<span className="text-[11px] text-slate-400">{readableDate(msg.generatedAt)}</span>}
        {msg.content&&<button type="button" onClick={()=>copyAnswer(msg)}
         className="text-xs text-slate-500 inline-flex gap-1 items-center hover:text-sky-700">
@@ -289,7 +297,29 @@ export default function AgentWorkspace(){
      </button>
     </div>
     {showSettings&&<div className="rounded-lg border p-3 space-y-3 bg-slate-50">
-      <p className="text-xs text-slate-600">In Auto mode the agent chooses sources by question. In Live mode it fetches up to five checked sources. Conversation mode is general chat without live lookups.</p>
+      <p className="text-xs text-slate-600">
+       DEVASHRI uses a 120B reasoning model for text chat. Auto mode selects
+       connected public providers and lets the model use browser research.
+       Live mode fetches your selected feeds; Conversation is offline-only.
+       Model training knowledge is not a verified live source.
+      </p>
+      <div className="flex flex-wrap gap-x-6 gap-y-3">
+       <label className="flex items-center gap-2 text-xs font-medium">
+        <input type="checkbox" checked={webResearch}
+          onChange={e=>setWebResearch(e.target.checked)}/>
+        Enable on-demand public web research
+       </label>
+       <label className="flex items-center gap-2 text-xs font-medium">
+        <input type="checkbox" checked={forceWebResearch}
+          disabled={!webResearch||mode==='general'}
+          onChange={e=>setForceWebResearch(e.target.checked)}/>
+        Require fresh web search for every question
+       </label>
+      </div>
+      <p className="text-xs text-slate-500">
+       Public search consumes Groq quota. Indexed websites and connected feeds can
+       be incomplete or delayed. This does not grant access to private cameras.
+      </p>
       <div className="flex flex-wrap gap-3">
        {SOURCE_OPTIONS.map(([id,label])=><label key={id} className="inline-flex gap-1 items-center text-xs">
         <input type="checkbox" checked={sources.includes(id)}
@@ -319,14 +349,20 @@ export default function AgentWorkspace(){
       className="p-3 bg-sky-700 text-white rounded-lg disabled:opacity-40"><Send size={19}/></button>
     </form>
     <p className="text-[11px] text-slate-500">
-     Live data is provider-limited, may be delayed, and is not safety-certified. Conversation history is kept only in this browser tab.
+     Primary model: GPT-OSS 120B · Public observations and websites may be delayed or
+     incomplete. Verify original sources for consequential decisions.
+     Conversation history remains in this browser tab only.
     </p>
    </div>
   </section>
   <aside className="space-y-4 xl:sticky xl:top-6 self-start">
    <section className="defense-card p-4 space-y-3">
     <h3 className="font-semibold text-sm flex items-center gap-2"><Activity size={16} className="text-sky-700"/> Connected intelligence</h3>
-    <p className="text-xs text-slate-500">The agent fetches these publicly available sources when relevant. A listed integration is not a guarantee of continuous coverage.</p>
+    <p className="text-xs text-slate-500">
+     Active large model: {health?.model||'Checking Groq access'}.
+     On-demand public browser research is offered in Auto and Live modes.
+     Connected adapters report their own timestamps and partial coverage.
+    </p>
     <div className="space-y-2 text-xs">
      {[
       [Newspaper,'News headlines','Publisher reports · may be delayed'],
