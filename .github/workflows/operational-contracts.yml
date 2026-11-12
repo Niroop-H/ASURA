@@ -11,6 +11,7 @@ on:
       - 'src/app/api/intelligence/assurance/route.js'
       - 'tests/operationalFeeds.test.cjs'
       - 'tests/expandedFeeds.test.cjs'
+      - 'tests/wave2Feeds.test.cjs'
       - 'package.json'
       - '.github/workflows/operational-contracts.yml'
   pull_request:
