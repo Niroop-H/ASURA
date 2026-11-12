@@ -401,6 +401,14 @@ async function boundedRead(url,{fetcher=fetch,timeoutMs=9000,limitBytes=MAX_BYTE
  for(const part of chunks){bytes.set(part,pos);pos+=part.byteLength}
  return new TextDecoder().decode(bytes);
 }
+function blockedOperational(definition,checkedAt,reason){
+ return {source:definition.id,success:false,records:[],checkedAt,
+  status:{source:definition.id,name:definition.label,transport:'blocked',content:'unknown',
+   checkedAt,sourceUrl:definition.url,sourceTime:null,retrievedAt:null,sourceItemFresh:false,
+   reason,scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
+   maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
+   usableForOperationalClaims:false}};
+}
 export async function getOperationalSource(id,question='',opts={}){
  const definition=defFor(id);
  if(!definition)throw Error('Unknown source ID');
@@ -416,6 +424,22 @@ export async function getOperationalSource(id,question='',opts={}){
      scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
      maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
      usableForOperationalClaims:false}};
+  }
+  if(id==='dvids_news'&&!String(process.env.DVIDS_API_KEY||'').trim())
+   return blockedOperational(definition,checkedAt,'DVIDS_API_KEY not configured. Obtain an authorized developer key.');
+  if(id==='imf_portwatch_daily'&&process.env.IMF_PORTWATCH_REUSE_AUTHORIZED!=='true')
+   return blockedOperational(definition,checkedAt,'IMF PortWatch systematic/commercial reuse permission not recorded; daily estimates are blocked.');
+  if(id==='dvids_news'){
+   const u=new URL(definition.url);
+   u.searchParams.set('api_key',String(process.env.DVIDS_API_KEY).trim());
+   target=u.toString();
+  }
+  if(id==='nasa_donki'){
+   const u=new URL(definition.url);
+   u.searchParams.set('startDate',new Date(Date.now()-7*86400000).toISOString().slice(0,10));
+   u.searchParams.set('endDate',new Date().toISOString().slice(0,10));
+   u.searchParams.set('api_key',String(process.env.NASA_API_KEY||'DEMO_KEY').trim()||'DEMO_KEY');
+   target=u.toString();
   }
   if(id==='nws_alerts'&&opts.healthProbe!==true){
    const state=requestedState(question);
@@ -434,9 +458,12 @@ export async function getOperationalSource(id,question='',opts={}){
    limitBytes:id==='cisa_ics'?8000000:MAX_BYTES});
   checkedAt=new Date().toISOString();
   const parsed=parseOperationalFixture(id,text,requested);
+  // Never leak credentials embedded in upstream query parameters to the client.
+  const scrubbed=new URL(target);scrubbed.searchParams.delete('api_key');
+  const publicSourceUrl=scrubbed.toString();
   const content=freshnessStatus(parsed.sourceTime,checkedAt,definition.maxContentAgeMinutes);
   const status={
-   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:target,pullStartedAt,
+   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:publicSourceUrl,pullStartedAt,
    sourceTime:parsed.sourceTime||null,retrievedAt:checkedAt,checkedAt,
    ageMinutes:content.ageMinutes,reason:content.reason,
    sourceCount:parsed.sourceCount,notes:parsed.note,
@@ -445,11 +472,11 @@ export async function getOperationalSource(id,question='',opts={}){
    licensing:definition.licenseStatus,provider:definition.attribution,
    // Fresh retrieval does not grant operational approval, legal licence or
    // validation. Only a documented human release board can change this flag.
-   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch'&&definition.licenseStatus!=='provider-terms-review-required',
+   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch'&&definition.licenseStatus!=='provider-terms-review-required'&&definition.licenseStatus!=='written-permission-required',
    usableForOperationalClaims:false
   };
   const records=parsed.records.map((x,i)=>({
-   ...x,id:id+':'+(i+1),retrievedAt:checkedAt,sourceUrl:target,licensing:definition.licenseStatus,
+   ...x,id:id+':'+(i+1),retrievedAt:checkedAt,sourceUrl:publicSourceUrl,licensing:definition.licenseStatus,
    freshness:content.state,sourceTime:parsed.sourceTime||null
   }));
   const digest=createHash('sha256').update(JSON.stringify({id,checkedAt,status,records})).digest('hex');
@@ -458,7 +485,7 @@ export async function getOperationalSource(id,question='',opts={}){
  }catch(e){
   checkedAt=new Date().toISOString();
   return {source:id,success:false,records:[],checkedAt,
-   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:target,pullStartedAt,
+   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:definition.url,pullStartedAt,
     checkedAt,retrievedAt:null,sourceTime:null,
     reason:clean(e.message,170),scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
     maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
@@ -466,7 +493,7 @@ export async function getOperationalSource(id,question='',opts={}){
  }
 }
 export async function probeOperationalSources(selected=OPERATIONAL_SOURCE_IDS,opts={}){
- const allowed=[...new Set(selected)].filter(x=>OPERATIONAL_SOURCE_IDS.includes(x)).slice(0,16);
+ const allowed=[...new Set(selected)].filter(x=>OPERATIONAL_SOURCE_IDS.includes(x)).slice(0,24);
  const results=await Promise.all(allowed.map(id=>getOperationalSource(id,'',{...opts,healthProbe:true})));
  return {checkedAt:new Date().toISOString(),
   coverage:'On-demand independent checks; no continuous uptime claim or durable audit log',
