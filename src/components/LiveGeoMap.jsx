@@ -249,7 +249,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           d.id === 'flights' && r.aircraftType ? 'Aircraft: ' + r.aircraftType : null,
           d.id === 'flights' && Number.isFinite(r.altitudeFeet) ? 'Altitude: ' + Math.round(r.altitudeFeet).toLocaleString() + ' ft' : null,
           d.id === 'flights' && Number.isFinite(r.speedKnots) ? 'Ground speed: ' + Math.round(r.speedKnots) + ' knots' : null,
-          d.id === 'flights' && Number.isFinite(r.heading) ? 'Reported track: ' + Math.round(r.heading) + '°' : null,
+          d.id === 'flights' && Number.isFinite(r.heading) ? 'Ground track: ' + Math.round(r.heading) + '°' : null,
           d.id === 'flights' && typeof r.onGround==='boolean' ? (r.onGround?'Reported on ground':'Reported airborne') : null,
           d.id === 'flights' && Number.isFinite(r.ageSeconds)?'Age when fetched: '+r.ageSeconds+' seconds':null,
           d.id === 'flights' ? 'Receiver report, not a confirmed flight status or arrival' : null,
@@ -416,7 +416,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold">Live Air Traffic & Geographic Map</h2>
-          <p className="text-xs text-slate-500">Aircraft-shaped markers rotate with reported heading; positions update from the selected data provider.</p>
+          <p className="text-xs text-slate-500">Aircraft-shaped markers indicate receiver-reported positions and rotate with reported ground track (not true aircraft heading). Sources update periodically.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setDimension('2D')} className={'px-3 py-2 rounded border text-xs ' + (dimension==='2D'?'bg-sky-700 text-white':'bg-white')}>2D map</button>
@@ -553,10 +553,10 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
           <Datum label="Registration" value={display(current.registration)}/>
           <Datum label="Aircraft type" value={display(current.aircraftType)}/>
           <Datum label="ICAO hex" value={display(current.icao24)}/>
-          <Datum label="Altitude" value={display(Number.isFinite(current.altitudeFeet) ? Math.round(current.altitudeFeet).toLocaleString() : null, current.altitudeFeet != null ? ' ft' : '')}/>
+          <Datum label="Barometric altitude" value={display(Number.isFinite(current.altitudeFeet) ? Math.round(current.altitudeFeet).toLocaleString() : null, current.altitudeFeet != null ? ' ft' : '')}/>
           <Datum label="Ground speed" value={display(Number.isFinite(current.speedKnots) ? Math.round(current.speedKnots) : null, current.speedKnots != null ? ' kt' : '')}/>
           <Datum label="Speed (km/h)" value={display(kmh(current.speedKnots), current.speedKnots != null ? ' km/h' : '')}/>
-          <Datum label="Heading" value={display(current.heading, current.heading != null ? '°' : '')}/>
+          <Datum label="Ground track" value={display(current.heading, current.heading != null ? '°' : '')}/>
           <Datum label="Vertical rate" value={display(current.verticalRateFpm, current.verticalRateFpm != null ? ' ft/min' : '')}/>
           <Datum label="Origin" value={display(current.origin)}/>
           <Datum label="Destination" value={display(current.destination)}/>
