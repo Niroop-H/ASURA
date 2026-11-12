@@ -184,6 +184,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
   const [fullscreenMap,setFullscreenMap]=useState(false);
   const [zoomLevel,setZoomLevel]=useState(6);
   const [imageryMeta,setImageryMeta]=useState(null);
+  const [imageryFallback,setImageryFallback]=useState(null);
   const [pinnedAircraft,setPinnedAircraft]=useState(null);
   const [refresh, setRefresh] = useState(0);
   const [lastChecked, setLastChecked] = useState(null);
@@ -272,6 +273,15 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         }),
         satellite: esriImageryWithFallback(L),
       };
+      tileRef.current.satellite.on('imageryfallback',event=>{
+        if(!mounted)return;
+        setImageryFallback(prev=>{
+          const next={requestedZoom:event.requestedZoom,servedZoom:event.servedZoom};
+          if(prev?.requestedZoom===next.requestedZoom&&prev?.servedZoom===next.servedZoom)
+            return prev;
+          return next;
+        });
+      });
       tileRef.current.satellite.addTo(map);
       L.control.scale({metric:true,imperial:false}).addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
@@ -280,6 +290,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         radius: 250 * 1852, color: '#0284c7', weight: 1, dashArray: '5,8',
         opacity: 0.65, fillColor: '#0284c7', fillOpacity: 0.035, interactive: false,
       }).addTo(map);
+      map.on('movestart',()=>{if(mounted)setImageryFallback(null);});
       map.on('moveend', () => {
         if (!mounted) return;
         const p = map.getCenter();
@@ -674,11 +685,16 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
             <span>Reported source resolution: {imageryMeta.sourceResolutionMeters} m</span>}
           {imageryMeta?.success&&Number.isFinite(imageryMeta.maximumSourceZoom)&&
             <span>Native source at center: to zoom {imageryMeta.maximumSourceZoom}</span>}
-          {imageryMeta?.digitallyEnlarged&&<span className="font-semibold text-amber-800">Digital zoom only at this scale</span>}
+          {imageryFallback&&imageryFallback.requestedZoom===zoomLevel&&
+            <span className="font-semibold text-amber-800">
+              Some image tiles unavailable at zoom {zoomLevel}; showing real zoom {imageryFallback.servedZoom} tiles instead
+            </span>}
+          {zoomLevel===19&&
+            <span className="font-semibold text-slate-700">Maximum native satellite zoom reached</span>}
         </div>
         <p>{imageryMeta?.success&&imageryMeta.sourceProvider?
           'Source: '+imageryMeta.sourceProvider+(imageryMeta.sourceName?' / '+imageryMeta.sourceName:'')+'. ':
-          ''}The imagery is not live. Zoom beyond its native resolution enlarges pixels and cannot reveal a coffee mug or create new visual detail.</p>
+          ''}This historical image has finite native detail. Unavailable high-zoom source tiles are replaced with lower-zoom imagery where possible, not AI-enhanced or fabricated. More magnification cannot reveal smaller objects.</p>
         {imageryMeta&&!imageryMeta.success&&<p className="text-amber-900">
           {imageryMeta.error||'Imagery acquisition date is unverified'}</p>}
       </div>}
@@ -707,7 +723,7 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
             'Aircraft feed '+(flightData?'unavailable':'loading')}</span>
           <span className="text-xs text-slate-400">Map z{zoomLevel}/19 · {basemap==='satellite'?
             (imageryMeta?.acquiredOn?'Image capture '+imageryMeta.acquiredOn:'Imagery date not verified'):
-            'Street map'} {imageryMeta?.digitallyEnlarged?'· digitally enlarged':''}</span>
+            'Street map'} {imageryFallback?.requestedZoom===zoomLevel?'· some tiles use a lower zoom':''}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <button type="button" onClick={()=>setBasemap('street')} className={'px-2 py-1.5 rounded border border-slate-600 '+(basemap==='street'?'bg-sky-700':'')}>Street</button>
