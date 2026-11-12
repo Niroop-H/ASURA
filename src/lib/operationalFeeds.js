@@ -299,8 +299,18 @@ export async function getOperationalSource(id,question='',opts={}){
  const definition=defFor(id);
  if(!definition)throw Error('Unknown source ID');
  let target=definition.url,requested='California (health sample)';
- const checkedAt=new Date().toISOString();
+ const pullStartedAt=new Date().toISOString();
+ let checkedAt=pullStartedAt;
  try{
+  if(id==='nasdaq_halts'&&process.env.NASDAQ_HALTS_TERMS_ACCEPTED!=='true'){
+   return {source:id,success:false,records:[],checkedAt,
+    status:{source:id,name:definition.label,transport:'blocked',content:'unknown',
+     checkedAt,sourceUrl:target,sourceTime:null,retrievedAt:null,sourceItemFresh:false,
+     reason:'Nasdaq feed terms must be reviewed and accepted by an authorized operator before enabling this adapter.',
+     scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
+     maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
+     usableForOperationalClaims:false}};
+  }
   if(id==='nws_alerts'&&opts.healthProbe!==true){
    const state=requestedState(question);
    if(!state)throw Error('Please specify a US state for NWS active alerts (for example: California or Texas). No location assumed.');
@@ -316,10 +326,11 @@ export async function getOperationalSource(id,question='',opts={}){
   // the higher cap is restricted to this allowlisted source, not arbitrary URLs.
   const text=await boundedRead(target,{...opts,
    limitBytes:id==='cisa_ics'?8000000:MAX_BYTES});
+  checkedAt=new Date().toISOString();
   const parsed=parseOperationalFixture(id,text,requested);
   const content=freshnessStatus(parsed.sourceTime,checkedAt,definition.maxContentAgeMinutes);
   const status={
-   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:target,
+   source:id,name:definition.label,transport:'ok',content:content.state,sourceUrl:target,pullStartedAt,
    sourceTime:parsed.sourceTime||null,retrievedAt:checkedAt,checkedAt,
    ageMinutes:content.ageMinutes,reason:content.reason,
    sourceCount:parsed.sourceCount,notes:parsed.note,
@@ -328,7 +339,7 @@ export async function getOperationalSource(id,question='',opts={}){
    licensing:definition.licenseStatus,provider:definition.attribution,
    // Fresh retrieval does not grant operational approval, legal licence or
    // validation. Only a documented human release board can change this flag.
-   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch',
+   sourceItemFresh:content.state==='fresh'&&id!=='imf_portwatch'&&definition.licenseStatus!=='provider-terms-review-required',
    usableForOperationalClaims:false
   };
   const records=parsed.records.map((x,i)=>({
@@ -339,8 +350,9 @@ export async function getOperationalSource(id,question='',opts={}){
   return {source:id,success:true,provider:definition.attribution,records,
    status,checkedAt,sha256:digest,rawSha256:createHash('sha256').update(text).digest('hex')};
  }catch(e){
+  checkedAt=new Date().toISOString();
   return {source:id,success:false,records:[],checkedAt,
-   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:target,
+   status:{source:id,name:definition.label,transport:'down',content:'unknown',sourceUrl:target,pullStartedAt,
     checkedAt,retrievedAt:null,sourceTime:null,
     reason:clean(e.message,170),scope:definition.scope,cadenceMinutes:definition.cadenceMinutes,
     maxContentAgeMinutes:definition.maxContentAgeMinutes,licensing:definition.licenseStatus,
