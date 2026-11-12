@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { ExternalLink, RefreshCw, Plane } from 'lucide-react';
 
 const SOURCES = [
   { id: 'earthquakes', label: 'Earthquakes', refresh: 90000 },
   { id: 'events', label: 'Natural events', refresh: 300000 },
-  { id: 'flights', label: 'Regional flights', refresh: 120000 },
+  { id: 'flights', label: 'Regional aircraft observations', refresh: 30000 },
   { id: 'weather', label: 'Weather (Bengaluru point)', refresh: 600000 },
   { id: 'news', label: 'News headlines', refresh: 600000 },
 ];
@@ -71,16 +71,36 @@ export default function LiveDataViewer({ initialSource = 'flights' }) {
             <text x="12" y="22" fontSize="12" fill="#cbd5e1">Latitude / longitude observation plot — not satellite imagery</text>
           </svg>
         </div>}
+        {source === 'flights' && <div className="text-xs text-slate-600 flex flex-wrap items-center gap-3">
+          <span>Aircraft symbols represent reported positions, not verified flight status.</span>
+          <a className="underline text-sky-700" href="/flights">Open interactive aircraft map</a>
+          {state.result.providerTime&&<span>Provider snapshot: {DATE(state.result.providerTime)}</span>}
+         </div>}
         {source === 'flights' && <label className="text-sm flex gap-2 items-center">Flight region <select className="border rounded px-2 py-1 text-sm" value={region} onChange={e=>setRegion(e.target.value)}><option value="bengaluru">Bengaluru</option><option value="london">London</option><option value="singapore">Singapore</option><option value="newyork">New York</option><option value="dubai">Dubai</option></select></label>}
         {!records.length && <p className="text-sm">The provider returned zero records for this feed.</p>}
         <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded">
           {records.slice(0,100).map(r => <div key={r.id} className={'block w-full text-left p-3 hover:bg-slate-50 ' + (selected === r.id ? 'bg-sky-50' : '')}>
-            <button type="button" onClick={() => setSelected(r.id)} className="block text-sm font-medium text-left w-full">{r.title}</button>
+            <button type="button" onClick={() => setSelected(r.id)}
+              className="flex items-center gap-2 text-sm font-medium text-left w-full">
+              {source==='flights'&&<Plane size={19} className={r.onGround?'text-amber-700':'text-sky-700'}/>}
+              {r.title}
+              {source==='flights'&&<span className="text-xs text-slate-500 font-normal">
+                {r.registration||r.icao24||'Registration unavailable'}
+              </span>}
+             </button>
             <span className="block text-xs text-slate-600 mt-1">{r.description}</span>
-            {source === 'flights' && <span className="block text-xs font-medium text-slate-800 mt-1">{r.altitudeFeet != null ? Math.round(r.altitudeFeet).toLocaleString() + ' ft altitude · ' : ''}{r.speedKnots != null ? Math.round(r.speedKnots) + ' knots · ' : ''}{r.heading != null ? Math.round(r.heading) + '° heading · ' : ''}{r.ageSeconds != null ? r.ageSeconds + 's position age' : ''}</span>}
+            {source === 'flights' && <span className="block text-xs font-medium text-slate-800 mt-1">{r.altitudeFeet != null ? Math.round(r.altitudeFeet).toLocaleString() + ' ft altitude · ' : ''}{r.speedKnots != null ? Math.round(r.speedKnots) + ' knots · ' : ''}{r.heading != null ? Math.round(r.heading) + '° ground track · ' : ''}{r.ageSeconds != null ? r.ageSeconds + 's position age' : ''}</span>}
             {source === 'weather' && r.temperatureC != null && <span className="block text-lg font-semibold text-slate-800 mt-1">{r.temperatureC}°C <span className="text-xs font-normal">{r.humidity}% humidity · {r.windKmh == null ? 'wind unreported' : Math.round(r.windKmh) + ' km/h wind'}</span></span>}
             {source === 'earthquakes' && r.magnitude != null && <span className="block text-xs font-medium text-slate-800 mt-1">Magnitude {r.magnitude}{r.depthKm != null ? ' · ' + r.depthKm + ' km depth' : ''}</span>}
             <span className="block text-xs text-slate-500 mt-1">Observed/published: {DATE(r.observedAt)} · {r.source} {Number.isFinite(r.lat) && Number.isFinite(r.lon) ? '· ' + r.lat.toFixed(3) + ', ' + r.lon.toFixed(3) : ''}</span>
+            {source==='flights'&&selected===r.id&&<div className="rounded bg-sky-50 p-2 mt-2 text-xs text-slate-800 space-y-1">
+              <div>Type: {r.aircraftType||'Not reported'} · ICAO: {r.icao24||'Not reported'}</div>
+              <div>Reported coordinates: {r.lat?.toFixed(5)}, {r.lon?.toFixed(5)}
+                {' · '}{typeof r.onGround==='boolean'?(r.onGround?'Reported on ground':'Reported airborne'):'Ground status unavailable'}</div>
+              <div>Provider observation: {DATE(r.observedAt)}
+                {Number.isFinite(r.positionAgeSeconds)?' · '+r.positionAgeSeconds+'s age when retrieved':''}</div>
+              <div className="text-slate-600">Receiver observation only; destination, actual arrivals and aircraft model artwork are not inferred.</div>
+             </div>}
             {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-xs text-sky-700 inline-flex gap-1 items-center mt-1 underline">Original source <ExternalLink size={11}/></a>}
           </div>)}
         </div>
