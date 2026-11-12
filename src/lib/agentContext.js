@@ -86,7 +86,9 @@ const intent={
  nasa_donki:/\b(?:nasa donki|geomagnetic storm events?|space weather notifications?)\b/i,
  treasury_debt:/\b(?:treasury public debt|us national debt|debt to the penny|total public debt outstanding)\b/i,
  dvids_news:/\b(?:dvids|defense visual information distribution service|dod public media releases?)\b/i,
- imf_portwatch_daily:/\b(?:portwatch daily|imf daily port trade|portwatch trade estimates?|daily port calls)\b/i
+ imf_portwatch_daily:/\b(?:portwatch daily|imf daily port trade|portwatch trade estimates?|daily port calls)\b/i,
+ sec_suspensions:/\b(?:sec trading suspensions?|securities trading suspension notices?|sec enforcement suspension)\b/i,
+ noaa_ndbc_buoy:/\b(?:ndbc|noaa buoys?|buoy 46042|offshore wave height|buoy wind speed)\b/i
 };
 const followup=/^(?:what about|how about|and(?:\s+what about)?|same for|also for|what if)\b/i;
 export function selectAgentSources(question,mode,sources,history=[]){
