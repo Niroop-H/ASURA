@@ -6,6 +6,7 @@ on:
       - 'src/lib/operationalFeeds.js'
       - 'scripts/probe-public-sources.cjs'
       - 'scripts/probe-public-feeds.mjs'
+      - 'tests/wave3Feeds.test.cjs'
       - '.github/workflows/public-source-smoke.yml'
   schedule:
     - cron: '19 2,8,14,20 * * *'
