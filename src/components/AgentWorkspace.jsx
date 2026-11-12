@@ -13,7 +13,11 @@ const SOURCE_OPTIONS=[
  ['airports','Airports'],['earthquakes','Earthquakes'],['events','Earth events'],['search','Web search'],
  ['economy','World Bank GDP & statistics'],['fx','Reference exchange rates'],
  ['cyber','CISA exploited vulnerabilities'],['space','Space-station orbital elements'],
- ['business','GLEIF company LEIs'],['reference','Wikidata entities']
+ ['business','GLEIF company LEIs'],['reference','Wikidata entities'],
+ ['faa_nas','FAA airport status'],['faa_tfr','FAA TFR categories'],
+ ['nws_alerts','NWS alerts by US state'],['fema_disasters','FEMA disaster declarations'],
+ ['cisa_ics','CISA ICS bulletins'],['nrc_events','NRC event feed totals'],
+ ['imf_portwatch','PortWatch catalogue only']
 ];
 const REGIONS=[['bengaluru','Bengaluru'],['london','London'],['singapore','Singapore'],
  ['newyork','New York'],['dubai','Dubai']];
@@ -32,9 +36,15 @@ function SourceDetails({msg,onReview}){
  return <div className="mt-3 border-t pt-3 border-slate-200 space-y-3">
   <div className="flex flex-wrap gap-2">
    {statuses.map(s=><span key={s.source} title={[s.note,s.error,s.provider,
-      s.observationType,s.providerTime?'Provider time: '+readableDate(s.providerTime):''].filter(Boolean).join(' · ')}
-     className={'rounded border px-2 py-1 text-[11px] '+(s.success?'bg-white text-slate-600':'bg-amber-50 border-amber-300 text-amber-900')}>
-     {s.source}: {s.success?'source retrieved':'source unavailable'}
+      s.observationType,s.providerTime?'Provider time: '+readableDate(s.providerTime):'',
+      s.sourceTime?'Source time: '+readableDate(s.sourceTime):'Published time unverified',
+      s.scope].filter(Boolean).join(' · ')}
+     className={'rounded border px-2 py-1 text-[11px] '+
+      (!s.success?'bg-red-50 border-red-300 text-red-900':
+       s.contentFreshness&&s.contentFreshness!=='fresh'?
+       'bg-amber-50 border-amber-300 text-amber-900':'bg-white text-slate-600')}>
+     {s.source}: {!s.success?'down':s.contentFreshness?
+      'retrieved · '+s.contentFreshness:'source retrieved'}
    </span>)}
   </div>
   {msg.dataVerification==='unavailable'&&<div role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
@@ -102,7 +112,8 @@ export default function AgentWorkspace(){
  const [webResearch,setWebResearch]=useState(true);
  const [forceWebResearch,setForceWebResearch]=useState(false);
  const [sources,setSources]=useState(['news','weather','flights','cameras','airports','earthquakes','events',
-  'economy','fx','cyber','space','business','reference']);
+  'economy','fx','cyber','space','business','reference',
+  'faa_nas','faa_tfr','nws_alerts','fema_disasters','cisa_ics','nrc_events','imf_portwatch']);
  const [region,setRegion]=useState('bengaluru');
  const [busy,setBusy]=useState(false);
  const [health,setHealth]=useState(null);
@@ -414,6 +425,7 @@ export default function AgentWorkspace(){
      <Link href="/weather">Worldwide Weather Explorer</Link>
      <Link href="/search">Web Search</Link>
      <Link href="/intelligence">All public intelligence sectors & access status</Link>
+     <Link href="/readiness">Operational readiness & public-source health</Link>
     </div>
    </section>
    <div className="flex items-start gap-2 px-2 text-xs text-slate-500">
