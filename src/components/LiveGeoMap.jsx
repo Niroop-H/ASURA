@@ -268,7 +268,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
     const controller=new AbortController();
     const timer=setTimeout(async()=>{
       try{
-        const qs=new URLSearchParams({lat:center.lat.toFixed(4),lon:center.lng.toFixed(4)});
+        const qs=new URLSearchParams({lat:center.lat.toFixed(4),lon:center.lng.toFixed(4),
+          z:String(Math.round(map.getZoom()))});
         const res=await fetch('/api/imagery/metadata?'+qs,{signal:controller.signal,cache:'no-store'});
         const data=await res.json();
         if(!active)return;
@@ -605,12 +606,13 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           <strong>Current Esri satellite/aerial mosaic</strong>
           <span>Map zoom: {zoomLevel}/23</span>
-          <span>Image acquisition at map center: {imageryMeta?.success?
+          <span>Image capture at map center, zoom {zoomLevel}: {imageryMeta?.success?
             (imageryMeta.acquiredOn||'Provider date unavailable'):'Checking provider metadata…'}</span>
           {imageryMeta?.success&&Number.isFinite(imageryMeta.sourceResolutionMeters)&&
             <span>Reported source resolution: {imageryMeta.sourceResolutionMeters} m</span>}
           {imageryMeta?.success&&Number.isFinite(imageryMeta.maximumSourceZoom)&&
-            <span>Source zoom coverage at center: up to {imageryMeta.maximumSourceZoom}</span>}
+            <span>Native source at center: to zoom {imageryMeta.maximumSourceZoom}</span>}
+          {imageryMeta?.digitallyEnlarged&&<span className="font-semibold text-amber-800">Digital zoom only at this scale</span>}
         </div>
         <p>{imageryMeta?.success&&imageryMeta.sourceProvider?
           'Source: '+imageryMeta.sourceProvider+(imageryMeta.sourceName?' / '+imageryMeta.sourceName:'')+'. ':
@@ -642,8 +644,8 @@ export default function LiveGeoMap({ initialRegion = 'bengaluru', initialDimensi
             flightData.count+' observed positions · '+flightData.provider:
             'Aircraft feed '+(flightData?'unavailable':'loading')}</span>
           <span className="text-xs text-slate-400">Map z{zoomLevel}/23 · {basemap==='satellite'?
-            (imageryMeta?.acquiredOn?'Image captured '+imageryMeta.acquiredOn:'Imagery date not verified'):
-            'Street map'}</span>
+            (imageryMeta?.acquiredOn?'Image capture '+imageryMeta.acquiredOn:'Imagery date not verified'):
+            'Street map'} {imageryMeta?.digitallyEnlarged?'· digitally enlarged':''}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <button type="button" onClick={()=>setBasemap('street')} className={'px-2 py-1.5 rounded border border-slate-600 '+(basemap==='street'?'bg-sky-700':'')}>Street</button>
