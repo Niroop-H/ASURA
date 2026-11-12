@@ -19,6 +19,7 @@ export default function Header({ title, subtitle }) {
   return (
     <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
       <div>
+        <p className="text-[10px] mb-1 font-mono font-semibold tracking-wide text-slate-600">ASURA Defense Intelligence System™</p>
         <div className="flex items-center gap-2 mb-1">
           <span className="w-2 h-2 rounded-full bg-sky-600" />
           <h1 className="text-2xl font-bold font-sans tracking-tight text-slate-900">

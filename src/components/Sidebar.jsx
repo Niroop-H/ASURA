@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Shield,
   LayoutDashboard,
   MessageSquare,
   Crosshair,
@@ -76,10 +75,14 @@ export default function Sidebar() {
         <div className="flex flex-col">
           {/* Logo & Header */}
           <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-slate-900 text-white shadow-xs">
-                <Shield size={20} className="text-sky-400" />
-              </div>
+            <Link href="/" aria-label="ASURA Defense Intelligence System™ — Home" className="flex items-center gap-2.5 min-w-0">
+              <img
+                src="/asura-logo.jpg"
+                alt="ASURA Defense Intelligence System™ logo"
+                width={42}
+                height={42}
+                className="w-[42px] h-[42px] shrink-0 object-cover rounded-lg ring-1 ring-amber-200 shadow-sm bg-slate-950"
+              />
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="font-mono text-base font-bold tracking-tight text-slate-900">ASURA</span>
@@ -87,8 +90,8 @@ export default function Sidebar() {
                     v0.1
                   </span>
                 </div>
-                <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                  Defense Intelligence
+                <p className="text-[10px] font-mono tracking-tight leading-snug text-slate-600">
+                  Defense Intelligence System™
                 </p>
               </div>
             </Link>
