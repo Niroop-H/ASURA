@@ -257,6 +257,99 @@ function fcdoAdvice(text){
   note:'Country-level UK government advice; publication date is not a live risk sensor. Read the latest full country advice and local authority notices.'};
 }
 
+
+function noticeRss(text,id,category,note){
+ if(!/<rss\b/i.test(text)||!/<channel(?:\s[^>]*)?>/i.test(text))throw Error('Public RSS schema mismatch');
+ const items=xmlBlocks(text,'item');
+ const records=items.slice(0,20).map((item,i)=>{
+  const title=noHtml(xmlField(item,'title')),time=iso(xmlField(item,'pubDate'));
+  return title?record(id,id,title,'Published public notice. Refer to the official source for complete context.',
+   xmlField(item,'link'),time,i,{dataCategory:category}):null;
+ }).filter(Boolean);
+ return {records,sourceCount:items.length,sourceTime:latest(records.map(r=>r.observedAt)),
+  note:note+' No new headline is NOT an all-clear or proof of full coverage.'};
+}
+function nasaDonki(text){
+ const data=JSON.parse(text);
+ if(!Array.isArray(data))throw Error('NASA DONKI event schema mismatch');
+ const rows=data.filter(x=>x&&iso(x.startTime)).sort((a,b)=>String(b.startTime).localeCompare(String(a.startTime)));
+ if(data.length&&!rows.length)throw Error('NASA DONKI event timestamps invalid');
+ const records=rows.slice(0,12).map((x,i)=>{
+  const time=iso(x.startTime);
+  const kp=(Array.isArray(x.allKpIndex)?x.allKpIndex:[])
+   .map(y=>Number(y.kpIndex)).filter(n=>Number.isFinite(n)&&n>=0&&n<=9);
+  const maxKp=kp.length?Math.max(...kp):null;
+  return record('nasa_donki','nasa_donki',
+   'NASA geomagnetic storm event '+clean(x.gstID||'',45),
+   'Event started: '+time+(maxKp===null?'':'; highest reported Kp: '+maxKp)+
+   '. Event notification, not realtime GNSS-disruption monitoring.',
+   typeof x.link==='string'&&x.link.startsWith('https://')?x.link:
+   'https://kauai.ccmc.gsfc.nasa.gov/DONKI/',time,i,
+   {dataCategory:'published-space-weather-event',maxKp});
+ });
+ return {records,sourceCount:data.length,sourceTime:latest(records.map(x=>x.observedAt)),
+  note:'NASA published geomagnetic event records; absence of new events is not proof of uninterrupted GNSS.'};
+}
+function treasuryDebt(text){
+ const data=JSON.parse(text);
+ if(!data||!Array.isArray(data.data))throw Error('US Treasury debt schema mismatch');
+ const amount=v=>typeof v==='string'&&/^\d+(?:\.\d{1,2})?$/.test(v)?v:null;
+ const rows=data.data.slice(0,5).map(x=>{
+  const date=typeof x.record_date==='string'&&/^\d{4}-\d\d-\d\d$/.test(x.record_date)?
+   iso(x.record_date+'T00:00:00Z'):null;
+  const total=amount(x.tot_pub_debt_out_amt),publicHeld=amount(x.debt_held_public_amt),
+   intragov=amount(x.intragov_hold_amt);
+  if(!date||!total||!publicHeld||!intragov)throw Error('US Treasury record has invalid date or exact decimal amounts');
+  return {date,total,publicHeld,intragov};
+ });
+ const records=rows.map((x,i)=>record('treasury_debt','treasury_debt',
+  'US Treasury reported debt '+x.date.slice(0,10),
+  'Total public debt outstanding USD '+x.total+'; debt held by public USD '+x.publicHeld+
+  '; intragovernmental holdings USD '+x.intragov+
+  '. Published exact decimals (not floating-point calculations).',
+  'https://fiscaldata.treasury.gov/datasets/debt-to-the-penny/debt-to-the-penny',
+  x.date,i,{dataCategory:'published-fiscal-observation',
+   totalDebtUSD:x.total,debtHeldPublicUSD:x.publicHeld,intragovUSD:x.intragov,unit:'USD'}));
+ return {records,sourceCount:data.data.length,sourceTime:latest(rows.map(x=>x.date)),
+  note:'Published Treasury reporting date, not a continuously updating national-debt sensor. Decimal values are preserved exactly.'};
+}
+function dvidsNews(text){
+ const data=JSON.parse(text);
+ if(!data||!Array.isArray(data.results))throw Error('DVIDS search schema mismatch');
+ const rows=data.results.filter(x=>x&&x.type==='news'&&typeof x.title==='string').slice(0,12);
+ const records=rows.map((x,i)=>record('dvids_news','dvids_news',x.title,
+  'Published media release: '+noHtml(x.short_description||'').slice(0,300),
+  /^https:\/\/www\.dvidshub\.net\/news\//.test(x.url||'')?x.url:'https://www.dvidshub.net/',
+  x.date_published,i,{dataCategory:'official-published-defence-media',
+  publisherUnit:clean(x.unit_name||'',80)}));
+ return {records,sourceCount:Number(data.page_info?.total_results)||data.results.length,
+  sourceTime:latest(records.map(x=>x.observedAt)),
+  note:'DVIDS media is a publisher statement, not independently verified evidence of an occurrence.'};
+}
+function imfPortDaily(text){
+ const data=JSON.parse(text);
+ if(data?.error)throw Error('IMF ArcGIS returned an error object');
+ if(!data||!Array.isArray(data.features))throw Error('IMF daily-trade table schema mismatch');
+ const rows=data.features.slice(0,8).map(x=>{
+  const a=x?.attributes||{};
+  const date=typeof a.date==='string'&&/^\d{4}-\d\d-\d\d$/.test(a.date)?
+   iso(a.date+'T00:00:00Z'):typeof a.date==='number'?iso(a.date):null;
+  const calls=Number(a.portcalls),imports=Number(a.import),exports=Number(a.export);
+  if(!date||typeof a.portname!=='string'||![calls,imports,exports].every(n=>Number.isFinite(n)&&n>=0))
+   throw Error('IMF daily port estimate missing valid date, port or numerical observations');
+  return {date,name:clean(a.portname,70),calls,imports,exports};
+ });
+ const records=rows.map((x,i)=>record('imf_portwatch_daily','imf_portwatch_daily',
+  'Published port estimate '+x.date.slice(0,10),
+  'Port: '+x.name+'; calls: '+x.calls+'; estimated imports: '+x.imports+
+  ' metric tonnes; estimated exports: '+x.exports+
+  ' metric tonnes. Delayed preliminary AIS-derived estimates, not vessel tracks.',
+  'https://portwatch.imf.org/',x.date,i,
+  {dataCategory:'delayed-published-port-trade-estimate'}));
+ return {records,sourceCount:data.features.length,sourceTime:latest(records.map(x=>x.observedAt)),
+  note:'A capped sample from the IMF ArcGIS table; NOT national/global totals. Requires written permission for systematic or commercial reuse.'};
+}
+
 const parse={
  faa_nas:(text)=>faaNas(text),faa_tfr:(text)=>faaTfr(JSON.parse(text)),
  nws_alerts:(text,detail)=>nws(JSON.parse(text),detail),
@@ -267,7 +360,13 @@ const parse={
  noaa_swpc_kp:(text)=>swpcKp(text),
  nasdaq_halts:(text)=>nasdaqHalts(text),
  federal_register:(text)=>federalRegister(text),
- fcdo_travel:(text)=>fcdoAdvice(text)
+ fcdo_travel:(text)=>fcdoAdvice(text),
+ gdacs_alerts:(text)=>noticeRss(text,'gdacs_alerts','published-disaster-alert','GDACS last-24h public hazard alerts.'),
+ uscg_lnm:(text)=>noticeRss(text,'uscg_lnm','published-maritime-notice','USCG district local notices.'),
+ nasa_donki:(text)=>nasaDonki(text),
+ treasury_debt:(text)=>treasuryDebt(text),
+ dvids_news:(text)=>dvidsNews(text),
+ imf_portwatch_daily:(text)=>imfPortDaily(text)
 };
 export function parseOperationalFixture(id,text,detail){
  if(!parse[id])throw Error('Unknown operational source');
