@@ -29,6 +29,7 @@ const NAV_LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard },
   { href: '/agent', label: 'DEVASHRI AI', icon: MessageSquare },
   { href: '/intelligence', label: 'Intelligence Coverage', icon: Database },
+  { href: '/readiness', label: 'Source Readiness', icon: Radio },
   { href: '/search', label: 'Live Web Search', icon: Search },
   { href: '/tracking', label: 'Observations', icon: Crosshair },
   { href: '/map', label: 'Geospatial View', icon: Map },
