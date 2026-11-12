@@ -233,6 +233,10 @@ export async function probeOperationalSources(selected=OPERATIONAL_SOURCE_IDS,op
  return {checkedAt:new Date().toISOString(),
   coverage:'On-demand independent checks; no continuous uptime claim or durable audit log',
   sources:results.map(x=>({...x.status,recordCount:x.records.length,sha256:x.sha256||null})),
+  evidencePacks:results.map(x=>({
+   source:x.source,checkedAt:x.checkedAt,status:x.status,
+   records:x.records,sha256:x.sha256||null
+  })),
   readyCount:results.filter(x=>x.status?.usableForOperationalClaims).length,
   checkCount:results.length,checksNotCertification:true};
 }
