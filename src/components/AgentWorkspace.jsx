@@ -70,7 +70,7 @@ function SourceDetails({msg,onReview}){
        </a>}
        {r.source==='cameras'&&r.cameraId&&r.snapshotAvailable&&<button type="button"
          onClick={()=>onReview(r)} className="text-sky-700 underline inline-flex items-center gap-1">
-         Review one public snapshot <Camera size={12}/>
+         Select snapshot and ask your question <Camera size={12}/>
        </button>}
       </div>
     </div>)}
@@ -93,6 +93,8 @@ export default function AgentWorkspace(){
  const [showSettings,setShowSettings]=useState(false);
  const [copied,setCopied]=useState(null);
  const [linkedCamera,setLinkedCamera]=useState(null);
+ const [useSelectedSnapshot,setUseSelectedSnapshot]=useState(true);
+ const [snapshotPreviewRevision,setSnapshotPreviewRevision]=useState(0);
  const [linkedWeather,setLinkedWeather]=useState(null);
  const controller=useRef(null);
  const bottom=useRef(null);
@@ -101,8 +103,10 @@ export default function AgentWorkspace(){
   const params=new URLSearchParams(window.location.search);
   const cameraId=params.get('camera')||'';
   const title=params.get('cameraTitle')||'Selected public camera';
-  if(/^(?:caltrans-|tfl-)[a-zA-Z0-9 _-]{1,110}$/.test(cameraId))
+  if(/^(?:caltrans-|tfl-)[a-zA-Z0-9 _-]{1,110}$/.test(cameraId)){
     setLinkedCamera({id:cameraId,title:title.slice(0,110)});
+    setUseSelectedSnapshot(true);
+  }
   const lat=Number(params.get('weatherLat')),lon=Number(params.get('weatherLon'));
   const rawLat=params.get('weatherLat'),rawLon=params.get('weatherLon');
   if(rawLat!==null&&rawLon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&
@@ -121,6 +125,8 @@ export default function AgentWorkspace(){
   const question=String(message||'').trim();
   if(!question||busy)return;
   const previous=messages.map(m=>({role:m.role,content:m.content}));
+  // A selected snapshot is context; no AI request without the user's message.
+  const camera=linkedCamera&&useSelectedSnapshot?linkedCamera:null;
   setMessages(m=>[...m,{id:Date.now()+'u',role:'user',content:question}]);
   setDraft('');setBusy(true);
   const ac=new AbortController();
@@ -130,7 +136,8 @@ export default function AgentWorkspace(){
     method:'POST',cache:'no-store',signal:ac.signal,
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({message:question,history:previous.slice(-10),
-     mode,sources,region,...extra}),
+     mode,sources,region,...extra,
+     ...(camera?{reviewCamera:true,cameraId:camera.id}:{})}),
    });
    const d=await r.json();
    setMessages(m=>[...m,{id:Date.now()+'a',role:'assistant',content:d.answer||'',
@@ -145,10 +152,17 @@ export default function AgentWorkspace(){
     content:'',error:'Unable to contact the ASURA agent: '+e.message}]);
   }finally{setBusy(false);controller.current=null;input.current?.focus();}
  };
- const review=(r)=>send('Describe the general road/traffic and visibility conditions visible in the latest published public snapshot from '+r.title+'. Do not infer capture time or identify people.',{reviewCamera:true,cameraId:r.cameraId});
+ const review=(r)=>{
+  if(!r?.cameraId)return;
+  setLinkedCamera({id:r.cameraId,title:String(r.title||'Selected public camera').slice(0,110)});
+  setUseSelectedSnapshot(true);
+  setSnapshotPreviewRevision(v=>v+1);
+  requestAnimationFrame(()=>input.current?.focus());
+ };
  const newChat=()=>{
   controller.current?.abort();controller.current=null;
-  setMessages([]);setDraft('');setBusy(false);input.current?.focus();
+  setMessages([]);setDraft('');setBusy(false);
+  setLinkedCamera(null);setUseSelectedSnapshot(true);input.current?.focus();
  };
  const copyAnswer=async(msg)=>{
   try{await navigator.clipboard.writeText(msg.content||'');setCopied(msg.id);setTimeout(()=>setCopied(null),1700);}
@@ -178,17 +192,36 @@ export default function AgentWorkspace(){
     Check your server-side Groq key and model permissions in <Link className="underline" href="/keys">API Key Holders</Link>.
    </div>}
    <div className="flex-1 px-4 md:px-6 py-6 bg-slate-50 min-h-[380px] max-h-[68vh] overflow-y-auto space-y-5">
-    {linkedCamera&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 flex gap-3 flex-wrap justify-between items-center">
-     <div>
-      <p className="text-sm font-semibold text-slate-900">Public snapshot: {linkedCamera.title}</p>
-      <p className="text-xs text-slate-600">ASURA can inspect one published still image, not monitor continuous camera footage. Capture time is not independently verified.</p>
-     </div>
-     <button type="button" disabled={busy}
-      onClick={()=>send('Describe only visible general traffic, road and visibility conditions in the published snapshot of '+linkedCamera.title+'. Do not identify people or imply it is live video.',{reviewCamera:true,cameraId:linkedCamera.id})}
-      className="text-xs rounded bg-sky-700 text-white px-3 py-2 disabled:opacity-50">
-      Analyze public snapshot
-     </button>
-    </div>}
+    {linkedCamera&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 space-y-3" aria-label="Selected public camera snapshot">
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+       <div>
+        <p className="text-sm font-semibold text-slate-900">Selected snapshot: {linkedCamera.title}</p>
+        <p className="text-xs text-slate-600">
+         You choose the question. DEVASHRI will not generate a description until you send a message.
+        </p>
+       </div>
+       <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs flex gap-2 items-center text-slate-700">
+         <input type="checkbox" checked={useSelectedSnapshot}
+           onChange={e=>setUseSelectedSnapshot(e.target.checked)}
+           aria-label="Include selected public camera snapshot in my questions"/>
+         Include snapshot
+        </label>
+        <button type="button" onClick={()=>setSnapshotPreviewRevision(v=>v+1)}
+          className="text-xs rounded border border-sky-200 bg-white px-3 py-2">Refresh preview</button>
+        <button type="button" onClick={()=>setLinkedCamera(null)}
+          className="text-xs rounded border border-slate-200 bg-white px-3 py-2">Detach</button>
+       </div>
+      </div>
+      <img key={linkedCamera.id+':'+snapshotPreviewRevision}
+       src={'/api/cameras/snapshot?cameraId='+encodeURIComponent(linkedCamera.id)+'&revision='+snapshotPreviewRevision}
+       alt={'Latest operator-published snapshot preview: '+linkedCamera.title}
+       loading="lazy" className="w-full max-w-xl max-h-64 object-contain rounded bg-slate-950 border border-sky-200"/>
+      <p className="text-xs text-slate-600">
+       This preview is an operator-published still, not live video. Original capture time is unverified.
+       Each question including the snapshot retrieves the latest available frame, which may differ from the preview.
+      </p>
+     </div>}
     {linkedWeather&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 flex flex-wrap gap-3 items-center justify-between">
       <div>
        <p className="text-sm font-semibold text-slate-900">Global weather point: {linkedWeather.label}</p>
@@ -202,7 +235,7 @@ export default function AgentWorkspace(){
        Ask DEVASHRI about this weather
       </button>
     </div>}
-    {!messages.length&&<div className="max-w-2xl mx-auto pt-8 space-y-6">
+    {!messages.length&&!linkedCamera&&<div className="max-w-2xl mx-auto pt-8 space-y-6">
       <div className="text-center space-y-2">
        <div className="text-3xl font-semibold text-slate-900">What would you like to explore?</div>
        <p className="text-sm text-slate-600">
@@ -270,11 +303,17 @@ export default function AgentWorkspace(){
        </select>
       </label>
     </div>}
+    {linkedCamera&&useSelectedSnapshot&&<p className="text-xs text-sky-800 font-medium flex items-center gap-2">
+      <Camera size={14}/> Your next question will include the selected public snapshot.
+    </p>}
     <form onSubmit={e=>{e.preventDefault();send(draft)}} className="flex gap-2 items-end">
      <textarea ref={input} value={draft} onChange={e=>setDraft(e.target.value)}
       onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(draft)}}}
-      rows={2} maxLength={2500} aria-label="Message DEVASHRI"
-      placeholder="Message DEVASHRI… ask anything, or request recent news, flight data, weather or public camera information."
+      rows={2} maxLength={2500}
+      aria-label={linkedCamera&&useSelectedSnapshot?'Your question about the selected snapshot':'Message DEVASHRI'}
+      placeholder={linkedCamera&&useSelectedSnapshot?
+       'Ask your own question about this snapshot…':
+       'Message DEVASHRI… ask anything, or request recent news, flight data, weather or public camera information.'}
       className="flex-1 min-w-0 resize-y rounded-lg border border-slate-300 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-400 max-h-48"/>
      <button type="submit" disabled={busy||!draft.trim()} aria-label="Send message to DEVASHRI"
       className="p-3 bg-sky-700 text-white rounded-lg disabled:opacity-40"><Send size={19}/></button>
