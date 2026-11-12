@@ -1,24 +1,22 @@
-> **Current status (2026-11-11): development build, not operationally validated.**
+> **Current status (2026-11-12): development build, not operationally validated.**
 > Earlier screenshots and feature descriptions below reflect prototype UI and are not evidence of implemented capabilities.
 > Sample tracks, measurements, readiness scores, and compliance assertions have been withdrawn.
-> Evidence queries return HTTP 503 until acquisition is implemented. See `ASURA_HANDOFF.md` and `docs/TEST_STATUS.md`.
+> Unconnected evidence queries can return HTTP 503. Individual public-data adapters must be checked at runtime; they are not continuously certified. See `ASURA_HANDOFF.md`, `docs/OPERATIONAL_ACCEPTANCE.md`, and `docs/CONNECTOR_ACTIVATION_PLAN.md`.
 
 # ASURA — Defense Intelligence Platform
 ### Automated Strategic Unified Reconnaissance & Analytics System
 
-[![Classification](https://img.shields.io/badge/CLASSIFICATION-NATO%20UNCLASSIFIED%20%2F%20CUI-0284c7.svg)](#)
-[![Compliance](https://img.shields.io/badge/COMPLIANCE-NIST%20SP%20800--53%20%7C%20CMMC%202.0-16a34a.svg)](#)
-[![Audit](https://img.shields.io/badge/INTEGRITY-SHA--256%20MERKLE%20CHAINED-amber.svg)](#)
-[![Framework](https://img.shields.io/badge/FRAMEWORK-Next.js%2014%20App%20Router-black.svg)](#)
-[![Deployment](https://img.shields.io/badge/DEPLOYMENT-Vercel%20Edge%20Ready-blueviolet.svg)](#)
+**Development prototype · public read-only data · no certification or classified-data authorization.**
+
+**[Operational readiness & licence gates](docs/OPERATIONAL_ACCEPTANCE.md) · [Connector activation plan](docs/CONNECTOR_ACTIVATION_PLAN.md)**
 
 ---
 
 ## 🛡️ Executive Summary
 
-**ASURA** is an industrial-grade, sovereign defense intelligence command platform engineered for multi-domain situational awareness, tactical target telemetry, and automated intelligence correlation. Operating under the **NATO UNCLASSIFIED / CUI (Controlled Unclassified Information)** standard, ASURA combines high-density defense data visualizations, an evidence-grounded Groq LLaMA 3.3 70B analytical gateway, and a FIPS 180-4 SHA-256 cryptographic audit ledger.
+**ASURA** is a research-stage, public-source situational-awareness and analyst-assistance application developed by MAH Quantum. Its current integrations return bounded public records and documented source timestamps where available; some are metadata only and others require credentials or provider approval. AI interpretations must remain tied to retrieved evidence and human verification. The platform does **not** have accredited defence classification, production security certification, complete worldwide sensor access, guaranteed source uptime, or licensed trading/aviation/maritime entitlements.
 
-The system is strictly built to comply with **NIST SP 800-53 Rev 5**, **CMMC 2.0 Level 2**, **FedRAMP High Baseline**, **ITAR §120.54**, and **MAH Quantum Specification §3 & §7**.
+**The operational acceptance criteria, source limitations, and licence gates are described in the linked docs above.** Production deployment or successful unit tests must not be interpreted as operational approval.
 
 ---
 
