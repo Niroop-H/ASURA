@@ -14,7 +14,8 @@ const definitions=new Map(operationalDefinitions().map(d=>[d.id,d]));
 const DEFAULT=[
  'faa_nas','faa_tfr','nws_alerts','fema_disasters','cisa_ics',
  'nrc_events','imf_portwatch','noaa_swpc_kp','federal_register',
- 'fcdo_travel','gdacs_alerts','uscg_lnm','nasa_donki','treasury_debt'
+ 'fcdo_travel','gdacs_alerts','uscg_lnm','nasa_donki','treasury_debt',
+ 'sec_suspensions','noaa_ndbc_buoy'
 ];
 const args=process.argv.slice(2);
 const selectedArg=args.find(x=>x.startsWith('--sources='))?.slice('--sources='.length);
