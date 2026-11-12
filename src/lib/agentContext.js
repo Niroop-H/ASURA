@@ -76,7 +76,11 @@ const intent={
  fema_disasters:/\b(?:fema|federal disaster declarations?|declared disasters?)\b/i,
  cisa_ics:/\b(?:ics advisories|industrial control system advisories|ot cyber advisories|cisa ics)\b/i,
  nrc_events:/\b(?:nrc events?|nuclear regulatory commission (?:daily|event)|nuclear event notification reports?)\b/i,
- imf_portwatch:/\b(?:portwatch|imf maritime datasets?|imf port data catalogue)\b/i
+ imf_portwatch:/\b(?:portwatch|imf maritime datasets?|imf port data catalogue)\b/i,
+ noaa_swpc_kp:/\b(?:planetary k(?:p| index)|geomagnetic index|swpc|space weather index)\b/i,
+ nasdaq_halts:/\b(?:nasdaq (?:trading )?halts?|trading halt notices?|trade halt rss)\b/i,
+ federal_register:/\b(?:federal register|us (?:regulatory|federal) notices?|published federal rules?)\b/i,
+ fcdo_travel:/\b(?:fcdo|uk (?:foreign )?travel advice|british travel advisory)\b/i
 };
 const followup=/^(?:what about|how about|and(?:\s+what about)?|same for|also for|what if)\b/i;
 export function selectAgentSources(question,mode,sources,history=[]){
