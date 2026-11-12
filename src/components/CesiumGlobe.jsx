@@ -166,9 +166,10 @@ export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=
       position,
       properties:{source:r.source||'',observedAt:r.observedAt||null},
       ...(aircraft
-        ?{billboard:{image:smallPlane,width:24,height:28,
+        ?{billboard:{image:smallPlane,width:30,height:33,
             rotation:C.Math.toRadians(Number.isFinite(r.heading)?-r.heading:0),
-            horizontalOrigin:C.HorizontalOrigin.CENTER,verticalOrigin:C.VerticalOrigin.CENTER}}
+            horizontalOrigin:C.HorizontalOrigin.CENTER,verticalOrigin:C.VerticalOrigin.CENTER,
+            disableDepthTestDistance:Number.POSITIVE_INFINITY}}
         :{point:{pixelSize:9,
             color:C.Color.fromCssColorString(ICON_COLORS[r.sourceType]||'#f59e0b'),
             outlineColor:C.Color.WHITE,outlineWidth:2}}),
@@ -176,16 +177,17 @@ export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=
     const created=viewer.entities.add(entity);
     ids.set(created.id,r);
   }
-  // Use real 3D airplane geometry for a bounded subset of visible aircraft.
+  // Optional 3D geometry. Never remove the aircraft billboard: if the glTF
+  // cannot load, an invisible model must not hide a real ADS-B observation.
+  // Keep an airplane-shaped symbol present for every valid aircraft record.
   for(const r of planes.slice(0,90)){
    const entity=viewer.entities.getById('flights:'+String(r.id||r.title));
    if(!entity)continue;
-   entity.billboard=undefined;
    entity.orientation=C.Transforms.headingPitchRollQuaternion(
      entity.position.getValue(C.JulianDate.now()),
      new C.HeadingPitchRoll(C.Math.toRadians(Number.isFinite(r.heading)?r.heading:0),0,0));
    entity.model=new C.ModelGraphics({
-    uri:'/models/asura-aircraft.gltf',minimumPixelSize:20,maximumScale:125,
+    uri:'/models/asura-aircraft.gltf',minimumPixelSize:16,maximumScale:125,
     scale:1.2,runAnimations:false,
    });
   }
@@ -296,10 +298,16 @@ export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=
   {selected&&<div className="px-4 py-3 border-t border-slate-700 text-xs flex flex-wrap gap-4">
    <strong className="text-sm">{selected.title}</strong>
    <span>Provider: {selected.source}</span>
-   <span>Reported: {asDate(selected.observedAt)}</span>
-   <span>{selected.lat?.toFixed(4)}°, {selected.lon?.toFixed(4)}°</span>
-   {selected.altitudeFeet!=null&&<span>{Math.round(selected.altitudeFeet).toLocaleString()} ft altitude (reported)</span>}
-   {selected.speedKnots!=null&&<span>{Math.round(selected.speedKnots)} kn</span>}
+   <span>Observed: {asDate(selected.observedAt)}</span>
+   <span>Position: {selected.lat?.toFixed(4)}°, {selected.lon?.toFixed(4)}°</span>
+   {selected.icao24&&<span>ICAO: {selected.icao24}</span>}
+   {selected.registration&&<span>Registration: {selected.registration}</span>}
+   {selected.aircraftType&&<span>Type: {selected.aircraftType}</span>}
+   {selected.altitudeFeet!=null&&<span>Barometric altitude: {Math.round(selected.altitudeFeet).toLocaleString()} ft</span>}
+   {selected.speedKnots!=null&&<span>Groundspeed: {Math.round(selected.speedKnots)} kt</span>}
+   {selected.heading!=null&&<span>Track: {Math.round(selected.heading)}°</span>}
+   {Number.isFinite(selected.positionAgeSeconds)&&<span>Age at retrieval: {selected.positionAgeSeconds}s</span>}
+   <span>Receiver report, not a confirmed route or arrival</span>
   </div>}
   <p className="px-4 py-3 text-xs text-slate-400 border-t border-slate-700">
    Satellite mosaic pixel dates vary and are not verified as 2026. NASA VIIRS uses a dated daily layer, not live video or high-resolution object identification.
