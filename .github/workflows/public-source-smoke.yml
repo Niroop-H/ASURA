@@ -1,5 +1,11 @@
 name: Public-source external smoke observations
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/operationalFeeds.js'
+      - 'scripts/probe-public-sources.cjs'
+      - '.github/workflows/public-source-smoke.yml'
   schedule:
     - cron: '19 2,14 * * *'
   workflow_dispatch:
