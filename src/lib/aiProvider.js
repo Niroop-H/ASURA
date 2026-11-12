@@ -10,6 +10,7 @@ let cached=null,modelExpiry=0;
 const key=()=>String(process.env.GROQ_API_KEY||'').trim();
 const cleanError=s=>String(s||'Unknown provider response')
  .replace(/gsk_[a-zA-Z0-9_-]+/g,'[redacted]')
+ .replace(/org_[a-zA-Z0-9_-]+/g,'[redacted-organization]')
  .replace(/Bearer\s+[^\s,]+/gi,'Bearer [redacted]').slice(0,260);
 export async function availableModels(force=false){
  if(!key())return {ok:false,status:503,error:'GROQ_API_KEY is not configured in Vercel production'};
@@ -63,6 +64,7 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   ?(enforceSearch?['required','auto']:['auto'])
   :['none'];
  const failures=[];
+ let retriedRateLimit=false;
  for(let i=0;i<tries.length;i++){
   const choice=tries[i];
   const payload={...base,messages:useSearch&&enforceSearch?[researchInstruction,...messages]:messages};
@@ -86,6 +88,18 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   if(!r.ok){
    const detail=cleanError(data?.error?.message||'Provider request rejected');
    failures.push({status:r.status,detail});
+   // A single retry for a short provider-supplied cool-down, never a loop.
+   if(r.status===429&&!retriedRateLimit){
+    const header=Number(r.headers.get('retry-after'));
+    const mention=Number(detail.match(/try again in ([\d.]+)s/i)?.[1]);
+    const seconds=header>0?header:mention;
+    if(Number.isFinite(seconds)&&seconds>=0&&seconds<=4){
+     retriedRateLimit=true;
+     await new Promise(resolve=>setTimeout(resolve,Math.ceil(seconds*1000)+250));
+     tries.splice(i+1,0,choice);
+     continue;
+    }
+   }
    // Groq documents HTTP 400 when a required tool is not invoked. Retry
    // with auto once, but never call a non-search answer verified.
    if(enforceSearch&&choice==='required'&&r.status===400&&i+1<tries.length)continue;
