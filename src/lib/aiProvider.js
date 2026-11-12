@@ -1,82 +1,111 @@
 /**
- * Server-only Groq gateway for ASURA chat and bounded public-image review.
- * Never export API keys or raw upstream response headers to the browser.
+ * ASURA Defense Intelligence System™ — model-verified Groq gateway.
+ * Big-model only policy: 120B for text, 816B MoE (limited preview) for vision.
+ * No 8B/20B/27B automatic downgrade. Secrets remain server-side.
  */
 const ROOT='https://api.groq.com/openai/v1';
-const TEXT_MODELS=['openai/gpt-oss-20b','llama-3.1-8b-instant','openai/gpt-oss-120b','llama-3.3-70b-versatile'];
-const VISION_MODELS=['qwen/qwen3.8-27b','qwen/qwen3.6-27b','meta-llama/llama-4-scout-17b-16e-instruct'];
-let cached=null;
-let modelExpiry=0;
-const cleanError=(s)=>String(s||'Unknown upstream response')
- .replace(/gsk_[a-zA-Z0-9_-]+/g,'[redacted]').slice(0,210);
+export const TEXT_MODEL='openai/gpt-oss-120b';
+export const VISION_MODEL='meta-models/muse-spark-open';
+let cached=null,modelExpiry=0;
 const key=()=>String(process.env.GROQ_API_KEY||'').trim();
+const cleanError=s=>String(s||'Unknown provider response')
+ .replace(/gsk_[a-zA-Z0-9_-]+/g,'[redacted]')
+ .replace(/Bearer\s+[^\s,]+/gi,'Bearer [redacted]').slice(0,260);
 export async function availableModels(force=false){
  if(!key())return {ok:false,status:503,error:'GROQ_API_KEY is not configured in Vercel production'};
  if(cached&&Date.now()<modelExpiry&&!force)return cached;
  try{
   const r=await fetch(ROOT+'/models',{
-   cache:'no-store',signal:AbortSignal.timeout(9000),
+   cache:'no-store',signal:AbortSignal.timeout(8000),
    headers:{Authorization:'Bearer '+key(),Accept:'application/json'},
   });
   const data=await r.json().catch(()=>({}));
-  if(!r.ok){
-   return {ok:false,status:r.status,
-    error:'Groq model discovery HTTP '+r.status+': '+cleanError(data?.error?.message||
-     (r.status===401?'API key was rejected':r.status===404?'Model endpoint unavailable':'Check Groq account access'))};
-  }
+  if(!r.ok)return {ok:false,status:r.status,
+   error:'Groq model discovery HTTP '+r.status+': '+
+    cleanError(data?.error?.message||(r.status===401?'Provider key rejected':'Model catalogue unavailable'))};
   const ids=Array.isArray(data.data)?data.data.map(x=>x.id).filter(x=>typeof x==='string'):[];
-  if(!ids.length)return {ok:false,status:502,error:'Groq returned no available model IDs'};
-  const result={ok:true,ids,checkedAt:new Date().toISOString()};
-  cached=result;modelExpiry=Date.now()+300000;
-  return result;
- }catch(e){return {ok:false,status:503,error:'Groq model discovery failed: '+cleanError(e.message)};}
-}
-const candidates=(ids,vision)=>{
- const preferred=vision?process.env.GROQ_VISION_MODEL:process.env.GROQ_MODEL;
- const order=[preferred,...(vision?VISION_MODELS:TEXT_MODELS)].filter(Boolean);
- return [...new Set(order)].filter(id=>ids.includes(id)).slice(0,3);
-};
-export async function callGroq({messages,vision=false,maxTokens=850}={}){
- const models=await availableModels();
- if(!models.ok) return {success:false,status:503,error:models.error,diagnostics:{provider:'Groq',stage:'model-discovery',providerStatus:models.status}};
- const options=candidates(models.ids,vision);
- if(!options.length)return {success:false,status:503,
-  error:vision?'No authorized multimodal vision model is accessible on this Groq key':
-   'No supported text-chat model is accessible on this Groq key',
-  diagnostics:{provider:'Groq',stage:'model-availability',availableModelCount:models.ids.length}};
- const failures=[];
- for(const model of options){
-  try{
-   const r=await fetch(ROOT+'/chat/completions',{
-    method:'POST',cache:'no-store',signal:AbortSignal.timeout(26000),
-    headers:{Authorization:'Bearer '+key(),'Content-Type':'application/json'},
-    body:JSON.stringify({model,temperature:vision?.25:.45,max_completion_tokens:Math.min(1400,Math.max(120,maxTokens)),messages}),
-   });
-   const data=await r.json().catch(()=>({}));
-   if(!r.ok){
-    const msg=cleanError(data?.error?.message||'No explanation from provider');
-    failures.push({model,status:r.status,detail:msg});
-    // Restricted/unavailable model or unsupported capability: attempt another.
-    if([400,403,404,422].includes(r.status))continue;
-    break;
-   }
-   const answer=data?.choices?.[0]?.message?.content;
-   if(typeof answer==='string'&&answer.trim())return {
-    success:true,answer:answer.trim(),provider:'Groq',model:data.model||model,
-    generatedAt:new Date().toISOString(),
-   };
-   failures.push({model,status:502,detail:'Provider returned empty assistant content'});
-  }catch(e){failures.push({model,status:503,detail:cleanError(e.message)});break;}
+  if(!ids.length)return {ok:false,status:502,error:'Groq returned no available models'};
+  cached={ok:true,ids,checkedAt:new Date().toISOString()};
+  modelExpiry=Date.now()+300000;
+  return cached;
+ }catch(e){
+  return {ok:false,status:503,error:'Groq model discovery failed: '+cleanError(e.message)};
  }
- return {success:false,status:502,
-  error:'AI provider could not complete the response. '+failures.map(f=>f.model+' (HTTP '+f.status+': '+f.detail+')').join('; ').slice(0,460),
-  diagnostics:{provider:'Groq',stage:'chat-completion',attempted:failures.map(f=>({model:f.model,status:f.status}))}};
+}
+const chosenModel=(ids,vision)=>ids.includes(vision?VISION_MODEL:TEXT_MODEL)
+ ?(vision?VISION_MODEL:TEXT_MODEL):null;
+export async function callGroq({messages,vision=false,maxTokens=1700,
+ webSearch=false,forceWebSearch=false}={}){
+ const discovered=await availableModels();
+ if(!discovered.ok)return {success:false,status:503,error:discovered.error,
+  diagnostics:{provider:'Groq',stage:'model-discovery',providerStatus:discovered.status}};
+ const model=chosenModel(discovered.ids,vision);
+ if(!model)return {success:false,status:503,error:vision?
+  'The 816B Muse Spark vision model requires Groq preview access; this key does not list an approved large vision model. No smaller vision model was substituted.':
+  'The configured Groq key cannot access openai/gpt-oss-120b. No smaller text model will be substituted.',
+  diagnostics:{provider:'Groq',stage:'model-availability',requiredModel:vision?VISION_MODEL:TEXT_MODEL}};
+ const useSearch=Boolean(webSearch)&&!vision;
+ const payload={
+  model,messages,temperature:vision?0.2:0.35,
+  max_completion_tokens:Math.min(3600,Math.max(500,Number(maxTokens)||1700)),
+ };
+ if(!vision){
+  payload.reasoning_effort=useSearch?'low':'medium';
+  if(useSearch){
+   payload.tools=[{type:'browser_search'}];
+   payload.tool_choice=forceWebSearch?'required':'auto';
+  }
+ }else{
+  payload.reasoning_effort='low';
+ }
+ try{
+  const r=await fetch(ROOT+'/chat/completions',{
+   method:'POST',cache:'no-store',
+   signal:AbortSignal.timeout(useSearch?47000:36000),
+   headers:{Authorization:'Bearer '+key(),'Content-Type':'application/json'},
+   body:JSON.stringify(payload),
+  });
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok){
+   return {success:false,status:[400,401,403,404,422,429].includes(r.status)?503:502,
+    error:'Large-model request rejected by Groq (HTTP '+r.status+'): '+
+     cleanError(data?.error?.message||'No provider explanation')+
+     (useSearch?' · Browser search was requested; no current answer was generated.':''),
+    diagnostics:{provider:'Groq',stage:'chat-completion',attempted:[{model,status:r.status}],
+      webSearchRequested:useSearch}};
+  }
+  const answer=data?.choices?.[0]?.message?.content;
+  if(typeof answer!=='string'||!answer.trim())
+   return {success:false,status:502,error:'Large model returned no usable answer',
+    diagnostics:{provider:'Groq',stage:'chat-completion',attempted:[{model,status:502}]}};
+  return {
+   success:true,answer:answer.trim(),provider:'Groq',model:data.model||model,
+   generatedAt:new Date().toISOString(),
+   webSearchRequested:useSearch,webSearchRequired:useSearch&&Boolean(forceWebSearch),
+   // Requesting a tool is not proof it was run; don't mark its results as verified
+   // without provider evidence.
+   webSearchExecuted:null,
+   usage:data.usage?{inputTokens:data.usage.prompt_tokens??null,
+    outputTokens:data.usage.completion_tokens??null}:null,
+  };
+ }catch(e){
+  return {success:false,status:503,
+   error:'Large-model inference did not complete: '+cleanError(e.message),
+   diagnostics:{provider:'Groq',stage:'chat-completion',attempted:[{model,status:503}],
+    webSearchRequested:useSearch}};
+ }
 }
 export async function groqHealth(){
- const found=await availableModels();
- if(!found.ok)return {ready:false,configured:!!key(),provider:'Groq',error:found.error,checkedAt:new Date().toISOString()};
- const usable=candidates(found.ids,false);
- return {ready:usable.length>0,configured:true,provider:'Groq',model:usable[0]||null,
-  visionAvailable:candidates(found.ids,true).length>0,checkedAt:found.checkedAt,
-  error:usable.length?'': 'Configured Groq key has no supported chat model'};
+ const models=await availableModels();
+ if(!models.ok)return {ready:false,configured:!!key(),provider:'Groq',
+  error:models.error,checkedAt:new Date().toISOString(),
+  requiredTextModel:TEXT_MODEL,requiredVisionModel:VISION_MODEL};
+ const ready=Boolean(chosenModel(models.ids,false));
+ const visionReady=Boolean(chosenModel(models.ids,true));
+ return {ready,configured:true,provider:'Groq',model:ready?TEXT_MODEL:null,
+  modelParametersBillion:ready?120:null,visionAvailable:visionReady,
+  visionModel:visionReady?VISION_MODEL:null,
+  requiredTextModel:TEXT_MODEL,requiredVisionModel:VISION_MODEL,
+  webResearchSupported:ready,
+  checkedAt:models.checkedAt,error:ready?'':'GPT-OSS 120B not accessible on this Groq key; smaller models disabled'};
 }
