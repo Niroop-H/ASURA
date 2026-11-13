@@ -7,6 +7,9 @@
  * Secrets remain server-side.
  */
 const ROOT='https://api.groq.com/openai/v1';
+export const MODEL_BRAND='Quantum[-0-]Brain D25@1007';
+// A product label, not a newly trained foundation model. Underlying provider ID
+// remains available for operator diagnostics and auditing.
 export const TEXT_MODEL='openai/gpt-oss-120b';
 export const VISION_MODEL='meta-models/muse-spark-open';
 export const VISION_FALLBACK_MODEL='qwen/qwen3.8-27b';
@@ -22,13 +25,21 @@ export function selectVisionModel(ids,policy=visionPolicy()){
  return null;
 }
 let cached=null,modelExpiry=0;
+const rateLimitedUntil=new Map();
+const quotaFailure=(model,retryAfterSeconds)=>({
+ success:false,status:429,
+ error:MODEL_BRAND+' is temporarily rate-limited by its inference provider. '+
+  'The token-per-minute allowance is exhausted; no unverified AI answer was substituted.',
+ retryAfterSeconds:Math.max(0,Math.ceil(retryAfterSeconds||0))||null,
+ diagnostics:{provider:'Groq',stage:'rate-limit',model,retryAfterSeconds:Math.max(0,Math.ceil(retryAfterSeconds||0))||null}
+});
 const key=()=>String(process.env.GROQ_API_KEY||'').trim();
 const cleanError=s=>String(s||'Unknown provider response')
  .replace(/gsk_[a-zA-Z0-9_-]+/g,'[redacted]')
  .replace(/org_[a-zA-Z0-9_-]+/g,'[redacted-organization]')
  .replace(/Bearer\s+[^\s,]+/gi,'Bearer [redacted]').slice(0,260);
 export async function availableModels(force=false){
- if(!key())return {ok:false,status:503,error:'GROQ_API_KEY is not configured in Vercel production'};
+ if(!key())return {ok:false,status:503,error:'GROQ_API_KEY is not configured in the server environment'};
  if(cached&&Date.now()<modelExpiry&&!force)return cached;
  try{
   const r=await fetch(ROOT+'/models',{
@@ -65,13 +76,16 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   'The Groq key cannot access openai/gpt-oss-120b; no smaller text model was substituted.',
   diagnostics:{provider:'Groq',stage:'model-availability',requiredModel:vision?VISION_MODEL:TEXT_MODEL,
    allowedVisionModel:visionPolicy()==='auto'?VISION_FALLBACK_MODEL:null}};
+ const until=rateLimitedUntil.get(model)||0;
+ if(Date.now()<until)return quotaFailure(model,(until-Date.now())/1000);
  const useSearch=Boolean(webSearch)&&!vision;
  const enforceSearch=useSearch&&Boolean(forceWebSearch);
  const base={
   model,temperature:useSearch?0.2:vision?0.2:0.35,
-  max_completion_tokens:Math.min(3600,Math.max(500,Number(maxTokens)||1700)),
+  max_completion_tokens:Math.min(1600,Math.max(350,Number(maxTokens)||850)),
   reasoning_effort:useSearch?'low':vision?
-   (model===VISION_FALLBACK_MODEL?'default':'low'):'medium',
+   (model===VISION_FALLBACK_MODEL?'default':'low'):
+   (JSON.stringify(messages||[]).length>6500?'low':'medium'),
   ...(vision&&model===VISION_FALLBACK_MODEL?{reasoning_format:'hidden'}:{}),
  };
  // GPT-OSS 120B supports hosted browser_search, but rejects citation_options.
@@ -87,6 +101,7 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   :['none'];
  const failures=[];
  let retriedRateLimit=false;
+ let rejectedQuota=null;
  for(let i=0;i<tries.length;i++){
   const choice=tries[i];
   const payload={...base,messages:useSearch&&enforceSearch?[researchInstruction,...messages]:messages};
@@ -111,16 +126,20 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
    const detail=cleanError(data?.error?.message||'Provider request rejected');
    failures.push({status:r.status,detail});
    // A single retry for a short provider-supplied cool-down, never a loop.
-   if(r.status===429&&!retriedRateLimit){
-    const header=Number(r.headers.get('retry-after'));
+   if(r.status===429){
+    const header=Number(r.headers?.get?.('retry-after'));
     const mention=Number(detail.match(/try again in ([\d.]+)s/i)?.[1]);
-    const seconds=header>0?header:mention;
-    if(Number.isFinite(seconds)&&seconds>=0&&seconds<=4){
+    const seconds=Math.min(3600,Math.max(1,Number.isFinite(header)&&header>0?header:
+      Number.isFinite(mention)&&mention>0?mention:30));
+    rejectedQuota=seconds;
+    rateLimitedUntil.set(model,Date.now()+Math.ceil(seconds*1000));
+    if(!retriedRateLimit&&seconds<=4){
      retriedRateLimit=true;
      await new Promise(resolve=>setTimeout(resolve,Math.ceil(seconds*1000)+250));
      tries.splice(i+1,0,choice);
      continue;
     }
+    break;
    }
    // Groq documents HTTP 400 when a required tool is not invoked. Retry
    // with auto once, but never call a non-search answer verified.
@@ -164,6 +183,7 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
     outputTokens:data.usage.completion_tokens??null}:null,
   };
  }
+ if(rejectedQuota!==null)return quotaFailure(model,rejectedQuota);
  const problem=failures.at(-1)||{status:503,detail:'No provider result'};
  return {success:false,status:503,
   error:(enforceSearch?
@@ -180,7 +200,8 @@ export async function groqHealth(){
   requiredTextModel:TEXT_MODEL,requiredVisionModel:VISION_MODEL};
  const ready=Boolean(chosenModel(models.ids,false));
  const visionSelection=selectVisionModel(models.ids);
- return {ready,configured:true,provider:'Groq',model:ready?TEXT_MODEL:null,
+ return {ready,configured:true,provider:'Groq',modelBrand:MODEL_BRAND,
+  model:ready?TEXT_MODEL:null,
   modelParametersBillion:ready?120:null,visionAvailable:Boolean(visionSelection),
   visionModel:visionSelection?.model||null,
   visionModelTier:visionSelection?.tier||null,
@@ -194,5 +215,5 @@ export async function groqHealth(){
    'Neither permitted vision model is currently selectable on this Groq account.',
   requiredTextModel:TEXT_MODEL,requiredVisionModel:VISION_MODEL,
   webResearchSupported:ready,
-  checkedAt:models.checkedAt,error:ready?'':'GPT-OSS 120B not accessible on this Groq key; smaller text models disabled'};
+  checkedAt:models.checkedAt,error:ready?'':'Required underlying text model is not accessible on this Groq key; smaller text models disabled'};
 }
