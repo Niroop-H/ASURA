@@ -10,6 +10,10 @@ on:
       - 'tests/newsRouting.test.cjs'
       - 'tests/redTeamReadOnly.test.cjs'
       - 'tests/defenceValidationEngine.test.cjs'
+      - 'tests/blueTeamEngine.test.cjs'
+      - 'src/lib/blueTeamCatalog.js'
+      - 'src/lib/blueTeamEngine.js'
+      - 'src/app/blue-team/page.jsx'
       - 'src/lib/defenceValidationEngine.js'
       - 'src/lib/redTeamCatalog.js'
       - 'src/lib/redTeamReadOnly.js'
@@ -54,5 +58,7 @@ jobs:
         run: npm run test:news
       - name: Read-only Red Team catalogue tests
         run: npm run test:red-team
+      - name: Blue Team offline analytics regression tests
+        run: npm run test:blue-team
       - name: Build
         run: npm run build
