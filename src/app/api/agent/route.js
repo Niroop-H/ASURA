@@ -226,6 +226,9 @@ export async function POST(request){
  return NextResponse.json({
   success:true,answer:result.answer,
   model:result.model,provider:result.provider,generatedAt:result.generatedAt,
+  ...(wantsImage?{visionModelTier:result.visionModelTier||null,
+   visionFallbackActive:result.visionFallbackActive===true,
+   visionPolicy:result.visionPolicy||null}:{}),
   webResearch:{requested:result.webSearchRequested===true,
    required:result.webSearchRequired===true,
    executedVerified:result.webSearchExecuted===true,
