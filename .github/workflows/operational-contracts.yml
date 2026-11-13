@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths:
       - 'src/lib/operationalFeeds.js'
+      - 'src/lib/aiProvider.js'
+      - 'src/components/AgentWorkspace.jsx'
+      - 'tests/visionRouting.test.cjs'
       - 'scripts/probe-public-feeds.mjs'
       - 'src/lib/agentContext.js'
       - 'src/lib/intelligenceCatalog.js'
@@ -33,5 +36,7 @@ jobs:
         run: npm run test:operational
       - name: Syntax-check smoke collector
         run: node --check scripts/probe-public-feeds.mjs
+      - name: Vision model routing regression tests
+        run: npm run test:vision
       - name: Build
         run: npm run build
