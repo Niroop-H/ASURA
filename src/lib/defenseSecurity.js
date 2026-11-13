@@ -54,10 +54,11 @@ export function renderEndpoint(path){
  const raw=process.env.RENDER_BACKEND_URL||'';
  let url;
  try{url=new URL(raw);}catch{throw Error('RENDER_BACKEND_URL is not configured with an HTTPS origin')}
+ const renderHost=url.protocol==='https:'&&url.hostname.endsWith('.onrender.com');
+ const testHost=process.env.NODE_ENV==='test'&&url.protocol==='http:'&&url.hostname==='127.0.0.1';
  if(url.username||url.password||url.search||url.hash||url.pathname!=='/'||
-   !(url.protocol==='https:'&&url.hostname.endsWith('.onrender.com')||
-     process.env.NODE_ENV==='test'&&url.protocol==='http:'&&url.hostname==='127.0.0.1'))
- )throw Error('RENDER_BACKEND_URL must be an origin on the approved Render host');
+    !(renderHost||testHost))
+  throw Error('RENDER_BACKEND_URL must be an origin on the approved Render host');
  return new URL(path,url).toString();
 }
 export function requireDefenseOperator(request){
