@@ -8,7 +8,7 @@
 
 **Development prototype · public read-only data · no certification or classified-data authorization.**
 
-**[Operational readiness & licence gates](docs/OPERATIONAL_ACCEPTANCE.md) · [Connector activation plan](docs/CONNECTOR_ACTIVATION_PLAN.md)**
+**[Operational readiness & licence gates](docs/OPERATIONAL_ACCEPTANCE.md) · [Connector activation plan](docs/CONNECTOR_ACTIVATION_PLAN.md) · [Red Team reference catalogue](docs/RED_TEAM_WORKSPACE.md)**
 
 ---
 
