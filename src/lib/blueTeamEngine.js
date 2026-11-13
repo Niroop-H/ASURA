@@ -238,7 +238,7 @@ export function analyzeBlueTeamEvents(input,{now=new Date().toISOString()}={}){
   // Re-normalize to allowlisted fields even for direct API calls.
   const row=normalizeDefensiveEvent(raw,i,{source:'manual'});
   if(!row){invalid++;continue}
-  const identity=row.source+'|'+row.id;
+  const identity=row.source+'|'+row.asset+'|'+row.id;
   if(seen.has(identity)){duplicates++;continue}
   seen.add(identity);events.push(row);
  }
