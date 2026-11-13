@@ -1,11 +1,26 @@
 /**
  * ASURA Defense Intelligence System™ — model-verified Groq gateway.
- * Big-model only policy: 120B for text, 816B MoE (limited preview) for vision.
- * No 8B/20B/27B automatic downgrade. Secrets remain server-side.
+ * Text: GPT-OSS 120B. Image: preview Muse 816B when entitled,
+ * otherwise explicitly named Qwen 3.8 27B multimodal when auto policy allows.
+ * Neither model name nor parameter count is a guarantee of image accuracy.
+ * No text-only model is ever asked to pretend it has inspected image pixels.
+ * Secrets remain server-side.
  */
 const ROOT='https://api.groq.com/openai/v1';
 export const TEXT_MODEL='openai/gpt-oss-120b';
 export const VISION_MODEL='meta-models/muse-spark-open';
+export const VISION_FALLBACK_MODEL='qwen/qwen3.8-27b';
+// "auto": use the specifically documented Qwen multimodal model when Muse
+// is not listed for this API key. "preview-only": do not use Qwen.
+// This is intentional model routing, not an undisclosed downgrade.
+export const visionPolicy=()=>process.env.ASURA_VISION_POLICY==='preview-only'?'preview-only':'auto';
+export function selectVisionModel(ids,policy=visionPolicy()){
+ if(!Array.isArray(ids))return null;
+ if(ids.includes(VISION_MODEL))return {model:VISION_MODEL,tier:'muse-preview-816b',fallback:false};
+ if(policy!=='preview-only'&&ids.includes(VISION_FALLBACK_MODEL))
+  return {model:VISION_FALLBACK_MODEL,tier:'qwen-multimodal-27b',fallback:true};
+ return null;
+}
 let cached=null,modelExpiry=0;
 const key=()=>String(process.env.GROQ_API_KEY||'').trim();
 const cleanError=s=>String(s||'Unknown provider response')
@@ -33,24 +48,31 @@ export async function availableModels(force=false){
   return {ok:false,status:503,error:'Groq model discovery failed: '+cleanError(e.message)};
  }
 }
-const chosenModel=(ids,vision)=>ids.includes(vision?VISION_MODEL:TEXT_MODEL)
- ?(vision?VISION_MODEL:TEXT_MODEL):null;
+const chosenModel=(ids,vision)=>vision
+ ?selectVisionModel(ids)?.model||null
+ :ids.includes(TEXT_MODEL)?TEXT_MODEL:null;
 export async function callGroq({messages,vision=false,maxTokens=1700,
  webSearch=false,forceWebSearch=false}={}){
  const discovered=await availableModels();
  if(!discovered.ok)return {success:false,status:503,error:discovered.error,
   diagnostics:{provider:'Groq',stage:'model-discovery',providerStatus:discovered.status}};
- const model=chosenModel(discovered.ids,vision);
+ const visionSelection=vision?selectVisionModel(discovered.ids):null;
+ const model=vision?visionSelection?.model:chosenModel(discovered.ids,false);
  if(!model)return {success:false,status:503,error:vision?
-  'The 816B Muse Spark vision model requires Groq preview access; this key does not list an approved large vision model. No smaller vision model was substituted.':
+  (visionPolicy()==='preview-only'
+   ?'Preview-only vision is enabled, but this Groq key does not list Muse Spark Open 816B. Change ASURA_VISION_POLICY to auto to permit Qwen 3.8 27B, or request Muse access.'
+   :'No permitted image-capable Groq model is available on this key. Qwen 3.8 27B and preview Muse Spark Open were both absent from model discovery.'):
   'The Groq key cannot access openai/gpt-oss-120b; no smaller text model was substituted.',
-  diagnostics:{provider:'Groq',stage:'model-availability',requiredModel:vision?VISION_MODEL:TEXT_MODEL}};
+  diagnostics:{provider:'Groq',stage:'model-availability',requiredModel:vision?VISION_MODEL:TEXT_MODEL,
+   allowedVisionModel:visionPolicy()==='auto'?VISION_FALLBACK_MODEL:null}};
  const useSearch=Boolean(webSearch)&&!vision;
  const enforceSearch=useSearch&&Boolean(forceWebSearch);
  const base={
   model,temperature:useSearch?0.2:vision?0.2:0.35,
   max_completion_tokens:Math.min(3600,Math.max(500,Number(maxTokens)||1700)),
-  reasoning_effort:useSearch?'low':vision?'low':'medium',
+  reasoning_effort:useSearch?'low':vision?
+   (model===VISION_FALLBACK_MODEL?'default':'low'):'medium',
+  ...(vision&&model===VISION_FALLBACK_MODEL?{reasoning_format:'hidden'}:{}),
  };
  // GPT-OSS 120B supports hosted browser_search, but rejects citation_options.
  // Inspect executed_tools for actual sources instead of requesting unsupported
@@ -133,6 +155,8 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   return {
    success:true,answer:answer.trim(),provider:'Groq',model:data.model||model,
    generatedAt:new Date().toISOString(),
+   ...(vision?{visionModelTier:visionSelection.tier,
+    visionFallbackActive:visionSelection.fallback,visionPolicy:visionPolicy()}:{}),
    webSearchRequested:useSearch,webSearchRequired:enforceSearch,
    webSearchExecuted:useSearch?used:false,
    webSources:used?refs:[],
@@ -155,11 +179,20 @@ export async function groqHealth(){
   error:models.error,checkedAt:new Date().toISOString(),
   requiredTextModel:TEXT_MODEL,requiredVisionModel:VISION_MODEL};
  const ready=Boolean(chosenModel(models.ids,false));
- const visionReady=Boolean(chosenModel(models.ids,true));
+ const visionSelection=selectVisionModel(models.ids);
  return {ready,configured:true,provider:'Groq',model:ready?TEXT_MODEL:null,
-  modelParametersBillion:ready?120:null,visionAvailable:visionReady,
-  visionModel:visionReady?VISION_MODEL:null,
+  modelParametersBillion:ready?120:null,visionAvailable:Boolean(visionSelection),
+  visionModel:visionSelection?.model||null,
+  visionModelTier:visionSelection?.tier||null,
+  visionFallbackActive:visionSelection?.fallback||false,
+  premiumVisionAvailable:models.ids.includes(VISION_MODEL),
+  visionPolicy:visionPolicy(),
+  visionNote:visionSelection?
+   (visionSelection.fallback?
+    'Qwen 3.8 27B is the selected multimodal vision model because Muse 816B is unavailable. Image answers come from Qwen, not from GPT-OSS 120B. Model listing does not prove a successful image inference.':
+    'Muse Spark Open 816B is listed for this account; an image request must still succeed.'):
+   'Neither permitted vision model is currently selectable on this Groq account.',
   requiredTextModel:TEXT_MODEL,requiredVisionModel:VISION_MODEL,
   webResearchSupported:ready,
-  checkedAt:models.checkedAt,error:ready?'':'GPT-OSS 120B not accessible on this Groq key; smaller models disabled'};
+  checkedAt:models.checkedAt,error:ready?'':'GPT-OSS 120B not accessible on this Groq key; smaller text models disabled'};
 }
