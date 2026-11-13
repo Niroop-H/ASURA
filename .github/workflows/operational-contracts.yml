@@ -7,6 +7,10 @@ on:
       - 'src/lib/aiProvider.js'
       - 'src/components/AgentWorkspace.jsx'
       - 'tests/visionRouting.test.cjs'
+      - 'tests/newsRouting.test.cjs'
+      - 'tests/quotaHandling.test.cjs'
+      - 'src/lib/newsQuery.js'
+      - 'src/lib/liveFeeds.js'
       - 'scripts/probe-public-feeds.mjs'
       - 'src/lib/agentContext.js'
       - 'src/lib/intelligenceCatalog.js'
@@ -38,5 +42,7 @@ jobs:
         run: node --check scripts/probe-public-feeds.mjs
       - name: Vision model routing regression tests
         run: npm run test:vision
+      - name: News retrieval and quota regression tests
+        run: npm run test:news
       - name: Build
         run: npm run build

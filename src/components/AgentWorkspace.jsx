@@ -105,6 +105,7 @@ function SourceDetails({msg,onReview}){
  </div>;
 }
 
+const ENGINE_LABEL='Quantum[-0-]Brain D25@1007';
 export default function AgentWorkspace(){
  const [messages,setMessages]=useState([]);
  const [draft,setDraft]=useState('');
@@ -172,6 +173,7 @@ export default function AgentWorkspace(){
    const d=await r.json();
    setMessages(m=>[...m,{id:Date.now()+'a',role:'assistant',content:d.answer||'',
     error:d.success?null:d.error||'AI response unavailable',model:d.model||null,
+    modelBrand:d.modelBrand||ENGINE_LABEL,retryAfterSeconds:d.retryAfterSeconds||null,
     visionFallbackActive:d.visionFallbackActive===true,visionModelTier:d.visionModelTier||null,
     records:d.records||[],statuses:d.statuses||[],snapshotReviewed:d.snapshotReviewed||null,
     webResearch:d.webResearch||null,
@@ -220,7 +222,7 @@ export default function AgentWorkspace(){
     </div>
    </header>
    {health&&!health.ready&&<div role="alert" className="px-5 py-3 bg-amber-50 text-amber-900 text-xs border-b">
-    ASURA large reasoning model unavailable: {health.error||'120B access not configured'}.
+    {ENGINE_LABEL} inference is unavailable: {health.error||'Backend inference access not configured'}.
     Check your server-side Groq key and model permissions in <Link className="underline" href="/keys">API Key Holders</Link>.
    </div>}
    <div className="flex-1 px-4 md:px-6 py-6 bg-slate-50 min-h-[380px] max-h-[68vh] overflow-y-auto space-y-5">
@@ -235,7 +237,7 @@ export default function AgentWorkspace(){
      className="rounded border border-sky-200 bg-sky-50 text-sky-950 p-3 text-xs">
      Snapshot analysis model selected: <strong>{health.visionModel}</strong>.
      {health.visionFallbackActive?
-      ' This is Qwen 27B multimodal, not Muse Spark 816B or GPT-OSS 120B.':
+      ' This frame uses Groq Qwen 27B multimodal, not the text-only reasoning backend.':
       ' Muse preview model is listed for this account.'}
      {' '}Only one public still is reviewed per question. Model listing does not guarantee successful inference or accuracy.
     </p>}
@@ -286,7 +288,7 @@ export default function AgentWorkspace(){
       <div className="text-center space-y-2">
        <div className="text-3xl font-semibold text-slate-900">What would you like to explore?</div>
        <p className="text-sm text-slate-600">
-        ASURA Defense Intelligence System™ combines 120B-model reasoning
+        ASURA Defense Intelligence System™ combines {ENGINE_LABEL} reasoning
         with connected public feeds and on-demand web research. Ask a natural question;
         supporting source records and timestamps are shown when available.
        </p>
@@ -306,7 +308,11 @@ export default function AgentWorkspace(){
       {msg.role==='assistant'?<RichAgentAnswer text={msg.content}/>:<p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>}
       {msg.error&&<p role="alert" className="bg-amber-50 text-amber-900 p-3 text-xs rounded border border-amber-100">{msg.error}</p>}
       {msg.role==='assistant'&&<div className="pt-1 flex flex-wrap gap-3 items-center">
-       {msg.model&&<span className="text-[11px] text-slate-600 font-medium">Model: {msg.model}</span>}
+       {msg.model&&<span className="text-[11px] text-slate-600 font-medium">AI: {ENGINE_LABEL}</span>}
+       {msg.model&&<details className="text-[11px] text-slate-500">
+        <summary className="cursor-pointer">Technical provider information</summary>
+        <span>Groq underlying model: <code>{msg.model}</code>. {ENGINE_LABEL} is the ASURA product label, not a separately trained foundation model.</span>
+       </details>}
        {msg.visionModelTier&&<span className="text-[11px] text-slate-600">Image interpretation: {msg.visionFallbackActive?'Qwen 27B multimodal':'Muse preview multimodal'}</span>}
        {msg.webResearch?.requested&&<span className={'text-[11px] '+
          (msg.webResearch.executedVerified?'text-emerald-800':'text-amber-800')}>
@@ -399,7 +405,7 @@ export default function AgentWorkspace(){
       className="p-3 bg-sky-700 text-white rounded-lg disabled:opacity-40"><Send size={19}/></button>
     </form>
     <p className="text-[11px] text-slate-500">
-     Text model: GPT-OSS 120B · Image model: {health?.visionModel||'not confirmed'} · Public observations and websites may be delayed or
+     AI engine: {ENGINE_LABEL} · Image backend: {health?.visionModel||'not confirmed'} · Public observations and websites may be delayed or
      incomplete. Verify original sources for consequential decisions.
      Conversation history remains in this browser tab only.
     </p>
@@ -409,8 +415,12 @@ export default function AgentWorkspace(){
    <section className="defense-card p-4 space-y-3">
     <h3 className="font-semibold text-sm flex items-center gap-2"><Activity size={16} className="text-sky-700"/> Connected intelligence</h3>
     <p className="text-xs text-slate-500">
-     Text model: {health?.model||'Checking Groq access'}.
-     Image model: {health?.visionModel||'Not currently available'}.
+     Engine: {ENGINE_LABEL}.
+     Image backend: {health?.visionModel||'Not currently available'}.
+     <details className="mt-1"><summary className="cursor-pointer">Technical provider details</summary>
+      Underlying text model: {health?.model||'Unavailable'}. Provider: Groq.
+      {ENGINE_LABEL} is ASURA's application identity, not an independently trained model.
+     </details>
      On-demand public browser research is offered in Auto and Live modes.
      Connected adapters report their own timestamps and partial coverage.
     </p>

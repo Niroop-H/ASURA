@@ -10,7 +10,8 @@
     "lint": "node ./node_modules/next/dist/bin/next lint",
     "validate-keys": "node scripts/validate-keys.js",
     "test:operational": "node --test tests/operationalFeeds.test.cjs tests/expandedFeeds.test.cjs tests/wave2Feeds.test.cjs tests/wave3Feeds.test.cjs",
-    "test:vision": "node --test tests/visionRouting.test.cjs"
+    "test:vision": "node --test tests/visionRouting.test.cjs",
+    "test:news": "node --test tests/newsRouting.test.cjs tests/quotaHandling.test.cjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
