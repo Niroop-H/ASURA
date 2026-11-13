@@ -1,5 +1,6 @@
 import {NextResponse} from 'next/server';
 import {redTeamCatalogSummary} from '@/lib/redTeamCatalog';
+import {DEFENCE_SCENARIOS,DEFENCE_ENGINE_VERSION,DEFENCE_ENGINE_POSTURE} from '@/lib/defenceValidationEngine';
 import {RED_TEAM_ACTIONS,SAFETY_CONTRACT,
  runRedTeamReadOnlyAction,verifyRedTeamReference} from '@/lib/redTeamReadOnly';
 
@@ -26,6 +27,7 @@ export async function GET(){
   success:true,
   ...redTeamCatalogSummary(),
   actions:RED_TEAM_ACTIONS,
+  defenceEngine:{version:DEFENCE_ENGINE_VERSION,scenarios:DEFENCE_SCENARIOS,safety:DEFENCE_ENGINE_POSTURE},
   safety:SAFETY_CONTRACT,
   notice:'Catalogue references only. No third-party red-team tool is installed or executable in this application.'
  });
@@ -50,7 +52,8 @@ export async function POST(request){
   action,
   query:typeof body.query==='string'?body.query:'',
   category:typeof body.category==='string'?body.category:'all',
-  scope:typeof body.scope==='string'?body.scope:''
+  scope:typeof body.scope==='string'?body.scope:'',
+  scenario:typeof body.scenario==='string'?body.scenario:'all'
  });
- return reply(out,out.success?200:400);
+ return reply(out,out.success?200:(out.status||400));
 }
