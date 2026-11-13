@@ -1,4 +1,5 @@
 import {getWorldwideWeather} from '@/lib/weatherService';
+import {topicalNewsQuery} from '@/lib/newsQuery';
 // Live-source adapters: no fixtures, seed records, or silent fallback.
 const SOURCE_LABELS = {
   earthquakes: 'USGS Earthquake Catalog',
@@ -14,11 +15,11 @@ const normalizeUrl = value => {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null; }
   catch { return null; }
 };
-async function retrieve(url, interval, {fresh=false}={}) {
+async function retrieve(url, interval, {fresh=false,headers={}}={}) {
   const response = await fetch(url, {
     ...(fresh ? {cache:'no-store'} : {next:{revalidate:interval}}),
     signal: AbortSignal.timeout(10000),
-    headers: { Accept: 'application/json', 'User-Agent': 'ASURA/1.0 (public observation viewer; research@mahquantum.tech)' },
+    headers: { Accept: 'application/json', 'User-Agent': 'ASURA/1.0 (public observation viewer; research@mahquantum.tech)',...headers },
   });
   if (!response.ok) throw new Error('Upstream returned HTTP ' + response.status);
   return response.json();
@@ -255,17 +256,33 @@ export async function getLiveSource(source, options = {}) {
       if (!process.env.NEWSAPI_KEY) {
         return { success: false, source, error: 'NEWSAPI_KEY is not configured', status: 503 };
       }
-      const url = 'https://newsapi.org/v2/top-headlines?language=en&pageSize=25&apiKey=' +
-        encodeURIComponent(process.env.NEWSAPI_KEY);
-      const data = await retrieve(url, interval);
-      if (!Array.isArray(data.articles)) throw new Error('Invalid NewsAPI payload');
-      const items = data.articles.map((a, i) => ({
-        id: String(i) + ':' + (a.url || a.title), title: a.title || 'Untitled report',
-        lat: null, lon: null, observedAt: a.publishedAt ? when(a.publishedAt) : null,
-        source: a.source?.name || 'NewsAPI', url: normalizeUrl(a.url),
-        description: String(a.description || '').slice(0, 320),
-      }));
-      return ok(source, data, items, interval);
+      const topic=topicalNewsQuery(options.query||'');
+      const url=new URL(topic?'https://newsapi.org/v2/everything':'https://newsapi.org/v2/top-headlines');
+      url.searchParams.set('language','en');
+      url.searchParams.set('pageSize',topic?'12':'20');
+      if(topic){
+        url.searchParams.set('q',topic);
+        url.searchParams.set('sortBy','publishedAt');
+        url.searchParams.set('searchIn','title,description');
+      }
+      // Authentication in a header, never in URLs/exception text/logs.
+      const data=await retrieve(url.toString(),interval,{
+        fresh:!!topic,headers:{'X-Api-Key':process.env.NEWSAPI_KEY}
+      });
+      if(data?.status!=='ok'||!Array.isArray(data.articles))throw new Error('Invalid NewsAPI response');
+      const items=data.articles.slice(0,20).map((a,i)=>({
+        id:String(i)+':'+(a.url||a.title),title:String(a.title||'Untitled report').slice(0,200),
+        observedAt:a.publishedAt?when(a.publishedAt):null,
+        source:a.source?.name||'NewsAPI',url:normalizeUrl(a.url),
+        description:String(a.description||'').slice(0,320),
+        dataCategory:'publisher-headline'
+      })).filter(x=>x.url&&x.title);
+      return { ...ok(source,data,items,interval),requestedTopic:topic,
+        totalPublisherMatches:Number.isFinite(Number(data.totalResults))?Number(data.totalResults):null,
+        coverage:topic?
+          'Publisher index search for '+topic+' (title/description); results may be delayed or incomplete. No unrelated headlines substituted.':
+          'General English-language headline sample only; not topic-specific or guaranteed live.'
+      };
     }
   } catch (error) {
     return { success: false, source, provider: SOURCE_LABELS[source],
