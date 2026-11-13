@@ -8,7 +8,7 @@
 
 **Development prototype · public read-only data · no certification or classified-data authorization.**
 
-**[Operational readiness & licence gates](docs/OPERATIONAL_ACCEPTANCE.md) · [Connector activation plan](docs/CONNECTOR_ACTIVATION_PLAN.md) · [Red Team reference catalogue](docs/RED_TEAM_WORKSPACE.md) · [Blue Team offline analytics](docs/BLUE_TEAM_ENGINE.md) · [Render autonomous defence core](docs/RENDER_DEFENSE_CORE.md)**
+**[Operational readiness & licence gates](docs/OPERATIONAL_ACCEPTANCE.md) · [Connector activation plan](docs/CONNECTOR_ACTIVATION_PLAN.md) · [Red Team reference catalogue](docs/RED_TEAM_WORKSPACE.md) · [Blue Team offline analytics](docs/BLUE_TEAM_ENGINE.md) · [Render autonomous defence core](docs/RENDER_DEFENSE_CORE.md) · [Cesium 3D Buildings setup](docs/CESIUM_BUILDINGS.md)**
 
 ---
 
