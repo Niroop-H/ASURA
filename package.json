@@ -14,6 +14,7 @@
     "test:news": "node --test tests/newsRouting.test.cjs tests/quotaHandling.test.cjs",
     "test:red-team": "node --test tests/redTeamReadOnly.test.cjs tests/defenceValidationEngine.test.cjs",
     "test:blue-team": "node --test tests/blueTeamEngine.test.cjs",
+    "test:cesium": "node --test tests/cesiumBuildings.test.cjs",
     "test:defense": "node --test tests/defenseBridge.test.cjs"
   },
   "dependencies": {
