@@ -189,14 +189,16 @@ async def execute_tool(name: str, parameters: dict | None, *, approved=False):
     args = validate_params(parameters)
     if args is None:
         return {"status": "INVALID_PARAMETERS", "tool": name, "executed": False}
+    if args["operation"] == "status":
+        if item["tier"] == 2:
+            return await local_diagnostics(item, args)
+        return {"status": integration_status(item), "tool": name, "executed": False,
+                "repository": item["repository"], "tier": item["tier"]}
     if item["risk_level"] == "HIGH" and not approved:
         return {
             "status": "REQUIRES_HUMAN_APPROVAL", "tool": name, "executed": False,
-            "reason": "High-risk tools do not run inside the autonomous read-only loop.",
+            "reason": "High-risk tool actions do not run inside the autonomous read-only loop.",
         }
-    if args["operation"] == "status":
-        return {"status": integration_status(item), "tool": name, "executed": False,
-                "repository": item["repository"], "tier": item["tier"]}
     if item["tier"] == 2:
         return await local_diagnostics(item, args)
     if item["repository"] == "gchq/CyberChef":
