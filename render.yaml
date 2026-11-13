@@ -1,0 +1,28 @@
+# Deploy as a Render Blueprint (one Free Web Service).
+# Free ≠ 24/7 guarantee; 750 shared monthly instance-hours and cold starts apply.
+services:
+  - type: web
+    name: asura-defense-core
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ASURA_ENGINE_SECRET
+        sync: false
+      - key: GROQ_DEFENSE_MODEL
+        value: llama-3.3-70b-versatile
+      - key: SOC_TUNNEL_URL
+        sync: false
+      - key: SOC_TUNNEL_SECRET
+        sync: false
+      - key: ASURA_WEBHOOK_URL
+        sync: false
+      - key: ASURA_ENABLE_CONTAINMENT
+        value: "false"
+      - key: ASURA_ASSET_ALLOWLIST
+        value: ""

@@ -34,6 +34,15 @@ const KEY_REGISTRY = [
   { envVar: 'DATABASE_URL',            provider: 'Primary DB',                domain: 'database', priority: 'optional' },
   { envVar: 'MONGODB_URI',             provider: 'MongoDB Atlas',             domain: 'database', priority: 'optional',    freeTier: '512 MB storage' },
   { envVar: 'REDIS_URL',               provider: 'Upstash Redis',             domain: 'database', priority: 'optional',    freeTier: '10,000 cmd/day' },
+  // Autonomous Defense Engine (optional until separately deployed)
+  { envVar:'RENDER_BACKEND_URL', provider:'Autonomous Defense Engine / Render origin', domain:'defense', priority:'optional', pattern:/^https:\/\/[a-z0-9.-]+\.onrender\.com\/?$/i },
+  { envVar:'ASURA_ENGINE_SECRET', provider:'Autonomous Defense Engine / HMAC signing', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+  { envVar:'ASURA_DEFENSE_ACCESS_TOKEN', provider:'Autonomous Defense Engine / operator access', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+  { envVar:'SOC_TUNNEL_URL', provider:'External SOC bridge (not auto-provisioned)', domain:'defense', priority:'optional', pattern:/^https:\/\// },
+  { envVar:'SOC_TUNNEL_SECRET', provider:'External SOC bridge HMAC', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+  { envVar:'ASURA_WEBHOOK_URL', provider:'Defense webhook receiver', domain:'defense', priority:'optional', pattern:/^https:\/\// },
+  { envVar:'GROQ_DEFENSE_MODEL', provider:'Groq defense model ID', domain:'defense', priority:'optional' },
+  { envVar:'ASURA_AUDIT_WRITE_TOKEN', provider:'Audit write authorization (legacy API)', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
   // App
   { envVar: 'JWT_SECRET',              provider: 'JWT Signing Secret',        domain: 'app',      priority: 'required',    pattern: /^.{16,}$/ },
 ];

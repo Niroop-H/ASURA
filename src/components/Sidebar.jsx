@@ -24,7 +24,8 @@ import {
   CloudSun,
   ExternalLink,
   Shield,
-  ShieldCheck
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 
 const NAV_LINKS = [
@@ -32,6 +33,7 @@ const NAV_LINKS = [
   { href: '/agent', label: 'DEVASHRI AI', icon: MessageSquare },
   { href: '/red-team', label: 'Red Team', icon: Shield },
   { href: '/blue-team', label: 'Blue Team', icon: ShieldCheck },
+  { href: '/defense', label: 'Autonomous Defense', icon: ShieldAlert },
   { href: '/intelligence', label: 'Intelligence Coverage', icon: Database },
   { href: '/readiness', label: 'Source Readiness', icon: Radio },
   { href: '/search', label: 'Live Web Search', icon: Search },

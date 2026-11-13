@@ -10,6 +10,7 @@ export const DOMAINS = {
   weather:  { label: 'Weather',         icon: 'CloudSun',    color: '#fb923c' },
   database: { label: 'Database',        icon: 'Database',    color: '#c084fc' },
   app:      { label: 'Application',     icon: 'Settings',    color: '#94a3b8' },
+  defense:  { label: 'Autonomous Defense Engine', icon: 'ShieldCheck', color: '#0284c7' },
 };
 
 export const QUERY_STAGES = [

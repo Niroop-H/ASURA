@@ -14,6 +14,16 @@ on:
       - 'src/lib/blueTeamCatalog.js'
       - 'src/lib/blueTeamEngine.js'
       - 'src/app/blue-team/page.jsx'
+      - 'backend/**'
+      - 'scripts/verify-defense-e2e.mjs'
+      - 'render.yaml'
+      - 'src/app/defense/**'
+      - 'src/app/api/defense/**'
+      - 'src/lib/defenseSecurity.js'
+      - 'src/lib/auditLogger.js'
+      - 'tests/defenseBridge.test.cjs'
+      - 'src/lib/keyHolder.js'
+      - 'src/services/keyHolder.js'
       - 'src/lib/defenceValidationEngine.js'
       - 'src/lib/redTeamCatalog.js'
       - 'src/lib/redTeamReadOnly.js'
@@ -43,7 +53,7 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Install
@@ -60,5 +70,36 @@ jobs:
         run: npm run test:red-team
       - name: Blue Team offline analytics regression tests
         run: npm run test:blue-team
+      - name: HMAC bridge and in-process Merkle ledger contract tests
+        run: npm run test:defense
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python defence core dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Render FastAPI, HMAC and approval regression tests
+        run: python -m unittest discover -s backend/tests -v
+      - name: Build Render Free-tier Docker image
+        run: docker build -f backend/Dockerfile -t asura-defense-core:ci backend
+      - name: Warm-container health and memory smoke
+        run: |
+          docker run -d --rm --memory=512m --name asura-defense-smoke -p 127.0.0.1:10000:10000 -e ASURA_ENGINE_SECRET=ci-only-long-random-secret-32-chars-000000 asura-defense-core:ci
+          trap 'docker stop asura-defense-smoke >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:10000/health >/dev/null && break || sleep 1; done
+          curl -fsS http://127.0.0.1:10000/health
+          usage=$(docker stats asura-defense-smoke --no-stream --format '{{.MemUsage}}')
+          echo "Warm container memory usage: $usage"
+          python - "$usage" <<'PY'
+          import re,sys
+          first=sys.argv[1].split('/')[0].strip()
+          m=re.match(r'([0-9.]+)\s*([KMGT]i?B)',first)
+          if not m: raise SystemExit('Cannot parse Docker RSS metric: '+first)
+          amount=float(m.group(1));unit=m.group(2)
+          mib={'KiB':1/1024,'MiB':1,'GiB':1024,'TiB':1024*1024,
+               'KB':1/1024,'MB':1,'GB':1024,'TB':1024*1024}[unit]
+          rss=amount*mib
+          print(f'Warm Docker memory: {rss:.1f} MiB (target <200 MiB)')
+          assert rss < 200, 'Development warm-container memory target failed'
+          PY
       - name: Build
         run: npm run build
