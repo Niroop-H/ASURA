@@ -133,6 +133,13 @@ export default function SourcesPage() {
       />
 
       {/* Top Controls Banner */}
+      <div className="defense-card p-4 border-sky-200 flex flex-wrap gap-3 justify-between items-center">
+       <div>
+        <h2 className="text-sm font-bold text-slate-900">Autonomous Defense Tool Registry</h2>
+        <p className="text-xs text-slate-500">50 Blue Team integration contracts; verified provider connectivity is reported separately from catalogue entries.</p>
+       </div>
+       <Link href="/defense" className="bg-slate-900 text-white rounded px-4 py-2 text-xs font-semibold">Open Defense Matrix</Link>
+      </div>
       <div className="defense-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 font-mono uppercase">
