@@ -73,7 +73,7 @@ export async function callGroq({messages,vision=false,maxTokens=1700,
   (visionPolicy()==='preview-only'
    ?'Preview-only vision is enabled, but this Groq key does not list Muse Spark Open 816B. Change ASURA_VISION_POLICY to auto to permit Qwen 3.8 27B, or request Muse access.'
    :'No permitted image-capable Groq model is available on this key. Qwen 3.8 27B and preview Muse Spark Open were both absent from model discovery.'):
-  'The Groq key cannot access openai/gpt-oss-120b; no smaller text model was substituted.',
+  'The required text backend for '+MODEL_BRAND+' is unavailable on this Groq key; no substitute text model was used.',
   diagnostics:{provider:'Groq',stage:'model-availability',requiredModel:vision?VISION_MODEL:TEXT_MODEL,
    allowedVisionModel:visionPolicy()==='auto'?VISION_FALLBACK_MODEL:null}};
  const until=rateLimitedUntil.get(model)||0;
