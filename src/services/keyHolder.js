@@ -235,6 +235,16 @@ const KEY_REGISTRY = [
     freeTier: '10,000 commands/day (Upstash free)',
   },
 
+  // ── Autonomous Defense Engine (server-only, optional) ────────────────────
+  { envVar:'RENDER_BACKEND_URL', provider:'Render Defense Core', domain:'defense', priority:'optional', pattern:/^https:\/\/[a-z0-9.-]+\.onrender\.com\/?$/i },
+  { envVar:'ASURA_ENGINE_SECRET', provider:'Defense HMAC secret', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+  { envVar:'ASURA_DEFENSE_ACCESS_TOKEN', provider:'Defense operator access', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+  { envVar:'GROQ_DEFENSE_MODEL', provider:'Groq Defense planning model', domain:'defense', priority:'optional' },
+  { envVar:'SOC_TUNNEL_URL', provider:'External authorized SOC Bridge', domain:'defense', priority:'optional', pattern:/^https:\/\// },
+  { envVar:'SOC_TUNNEL_SECRET', provider:'External SOC Bridge secret', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+  { envVar:'ASURA_WEBHOOK_URL', provider:'Vercel Defense webhook receiver', domain:'defense', priority:'optional', pattern:/^https:\/\// },
+  { envVar:'ASURA_AUDIT_WRITE_TOKEN', provider:'Legacy Audit API write authorization', domain:'defense', priority:'optional', pattern:/^.{32,}$/ },
+
   // ── Application Secrets ─────────────────────────────────────────────────
   {
     envVar:   'JWT_SECRET',
