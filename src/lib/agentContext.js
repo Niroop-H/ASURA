@@ -261,7 +261,8 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
     ?{lat:airport.lat,lon:airport.lon,radiusNm:20}
     :source==='flights'?{region}:
      source==='weather'&&weatherPoint?weatherPoint:
-     source==='weather'?await weatherLocation(question):{};
+     source==='weather'?await weatherLocation(question):
+     source==='news'?{query:question}:{};
    const data=await getLiveSource(source,args);
    if(!data?.success)throw new Error(data?.error||'Provider did not return records');
    return {source,success:true,provider:data.provider,records:(data.records||[]).slice(0,source==='flights'?12:10)
@@ -270,7 +271,9 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
     providerTime:data.providerTime||null,observationType:data.observationType||null,
     providerErrors:data.providerErrors||null,sourceStatuses:data.sourceStatuses||null,
     radiusNm:data.radiusNm||null,sourceAgeLimitSeconds:data.sourceAgeLimitSeconds||null,
-    providerCount:data.count};
+    providerCount:data.count,
+    requestedTopic:source==='news'?data.requestedTopic||null:null,
+    totalPublisherMatches:source==='news'?data.totalPublisherMatches??null:null};
   }catch(e){return {source,success:false,error:trimmed(e.message,200)};}
  });
  const responses=await Promise.all(tasks);
@@ -278,7 +281,7 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
   statuses:responses.map(({source,success,error,provider,note,providerCount,totalCatalog,
     providerTime,observationType,providerErrors,sourceStatuses,radiusNm,sourceAgeLimitSeconds,
     sourceTime,contentFreshness,transportStatus,sourceCount,evidenceHash,
-    freshnessForOperationalClaims,scope})=>
+    freshnessForOperationalClaims,scope,requestedTopic,totalPublisherMatches})=>
    ({source,success,error:error||null,provider:provider||null,note:note||null,
     providerTime:providerTime||null,observationType:observationType||null,
     providerErrors:providerErrors||null,sourceStatuses:sourceStatuses||null,
@@ -287,7 +290,8 @@ export async function assembleAgentContext(question,sourceNames,{region='bengalu
     sourceTime:sourceTime||null,contentFreshness:contentFreshness||null,
     transportStatus:transportStatus||null,evidenceHash:evidenceHash||null,
     freshnessForOperationalClaims:freshnessForOperationalClaims===true,
-    scope:scope||null})),
+    scope:scope||null,requestedTopic:requestedTopic||null,
+    totalPublisherMatches:totalPublisherMatches??null})),
   checkedAt:new Date().toISOString()};
 }
 /** Explicit user-initiated public snapshot inspection, not continuous CCTV analysis. */
