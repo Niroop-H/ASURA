@@ -26,7 +26,7 @@ export async function POST(request) {
   // Defence bridge writes directly through the server-only logger.
   const expected=process.env.ASURA_AUDIT_WRITE_TOKEN||'';
   const supplied=request.headers.get('x-asura-audit-write-token')||'';
-  if(expected.length<32||supplied.length!==expected.length||
+  if(Buffer.byteLength(expected)<32||Buffer.byteLength(supplied)!==Buffer.byteLength(expected)||
     !crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(supplied))){
     return NextResponse.json({success:false,error:'Audit writes require server authorization'},{status:403});
   }
