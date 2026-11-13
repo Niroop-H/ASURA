@@ -223,6 +223,17 @@ def integration_status(item: dict):
     return "NOT_CONNECTED"
 
 
+def _bound_executor(name: str):
+    async def execute(parameters: dict | None = None, *, approved=False):
+        return await execute_tool(name, parameters or {"operation": "status"}, approved=approved)
+    return execute
+
+
+# Every registry entry has a separately bound async typed executor.
+# These are strictly guarded adapters, NOT installed upstream security products.
+EXECUTORS = {item["name"]: _bound_executor(item["name"]) for item in CATALOG}
+
+
 def list_tool_status():
     return [
         {
@@ -232,6 +243,7 @@ def list_tool_status():
             "tier": item["tier"],
             "risk_level": item["risk_level"],
             "parameters": SCHEMA,
+            "executor": "guarded_async_adapter",
             "status": integration_status(item),
             "operationallyValidated": False,
             "supportsAutonomousReadOnly": item["tier"] == 3 and bool(_bridge_base()) and bool(os.getenv("SOC_TUNNEL_SECRET")),
