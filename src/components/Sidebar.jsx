@@ -22,12 +22,14 @@ import {
   Video,
   Search,
   CloudSun,
-  ExternalLink
+  ExternalLink,
+  Shield
 } from 'lucide-react';
 
 const NAV_LINKS = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard },
   { href: '/agent', label: 'DEVASHRI AI', icon: MessageSquare },
+  { href: '/red-team', label: 'Red Team', icon: Shield },
   { href: '/intelligence', label: 'Intelligence Coverage', icon: Database },
   { href: '/readiness', label: 'Source Readiness', icon: Radio },
   { href: '/search', label: 'Live Web Search', icon: Search },
@@ -74,7 +76,7 @@ export default function Sidebar() {
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex flex-col">
+        <div className="flex flex-col flex-1 min-h-0">
           {/* Logo & Header */}
           <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
             <Link href="/" aria-label="ASURA Defense Intelligence System™ — Home" className="flex items-center gap-2.5 min-w-0">
@@ -105,7 +107,7 @@ export default function Sidebar() {
           </div>
 
           {/* Navigation Links */}
-          <nav className="p-3 space-y-1">
+          <nav className="p-3 space-y-1 overflow-y-auto min-h-0">
             {NAV_LINKS.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
