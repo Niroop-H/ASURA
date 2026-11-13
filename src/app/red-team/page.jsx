@@ -10,12 +10,15 @@ import {
  searchRedTeamTools,
 } from '@/lib/redTeamCatalog';
 import {RED_TEAM_ACTIONS} from '@/lib/redTeamReadOnly';
+import {DEFENCE_SCENARIOS} from '@/lib/defenceValidationEngine';
 
 const copy={
  inventory:'Show the exact number of referenced tools in each category. Nothing is installed.',
  search:'Search only the supplied references by their name or stated purpose.',
  'assessment-plan':'Prepare a permission-first checklist. Does not scan or contact an asset.',
  'verify-reference':'Check one allowlisted public GitHub repository for metadata only.',
+ 'defence-drill':'Run six synthetic detection scenarios and evaluate safe alert rules; no real targets.',
+ 'integration-matrix':'Review the 50-tool defensive integration planning matrix; all remain unconnected.',
 };
 const shortDate=s=>{
  if(!s)return 'Unavailable';
@@ -25,7 +28,8 @@ const shortDate=s=>{
 export default function RedTeamPage(){
  const [category,setCategory]=useState('all');
  const [term,setTerm]=useState('');
- const [action,setAction]=useState('inventory');
+ const [action,setAction]=useState('defence-drill');
+ const [scenario,setScenario]=useState('all');
  const [repo,setRepo]=useState(RED_TEAM_TOOLS[0].repository);
  const [scope,setScope]=useState('');
  const [busy,setBusy]=useState(false);
@@ -38,7 +42,7 @@ export default function RedTeamPage(){
   try{
    const response=await fetch('/api/red-team',{
     method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:selected,query:term,category,scope,repository:selectedRepo})
+    body:JSON.stringify({action:selected,query:term,category,scope,repository:selectedRepo,scenario})
    });
    const body=await response.json();
    if(!response.ok||!body.success)throw Error(body.error||'Read-only request was rejected.');
@@ -49,7 +53,7 @@ export default function RedTeamPage(){
  };
  return (
   <main className="p-5 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
-   <Header title="Red Team" subtitle="Security tooling reference catalogue and authorized read-only assessment workspace"/>
+   <Header title="Red Team" subtitle="Security tooling reference catalogue and offline defensive validation engine"/>
    <section className="rounded-xl bg-slate-950 text-white p-5 md:p-7 space-y-4">
     <div className="flex flex-wrap justify-between gap-4 items-start">
      <div className="space-y-2 max-w-3xl">
@@ -58,7 +62,7 @@ export default function RedTeamPage(){
       </p>
       <h2 className="text-xl md:text-2xl font-semibold">50 tools. One searchable catalogue.</h2>
       <p className="text-sm text-slate-300 leading-relaxed">
-       Reference material for authorized security assessment, detection engineering and training.
+       Reference material for authorized security assessment, synthetic defence validation and training.
        Links are not installations. No command here launches C2, exploitation, credential harvesting,
        phishing campaigns or network pivoting.
       </p>
@@ -164,6 +168,17 @@ export default function RedTeamPage(){
        </select>
       </label>
       <p className="text-xs text-slate-500">{copy[action]}</p>
+      {action==='defence-drill'&&<label className="block space-y-1">
+       <span className="text-xs font-semibold text-slate-700">Defensive control scenario</span>
+       <select value={scenario} onChange={e=>{setScenario(e.target.value);setResult(null)}}
+        className="w-full rounded border border-slate-300 px-3 py-2 text-sm">
+        <option value="all">Run all six synthetic scenarios</option>
+        {DEFENCE_SCENARIOS.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+       </select>
+       <p className="text-[11px] text-amber-800">
+        All observations are fictitious training records. This is not a live network test.
+       </p>
+      </label>}
       {action==='assessment-plan'&&<label className="block space-y-1">
        <span className="text-xs text-slate-700">Owned lab / assessment label</span>
        <input value={scope} maxLength={100} onChange={e=>setScope(e.target.value)}
@@ -207,6 +222,56 @@ export default function RedTeamPage(){
          <p className="text-xs font-semibold text-slate-800">{x.title}</p>
          <p className="text-[11px] text-slate-600">{x.detail}</p>
         </div>)}
+       </div>}
+       {result.action==='defence-drill'&&<div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+         {[
+          ['Synthetic scenarios',result.scenariosTested],
+          ['Fixture cases',result.completedCases],
+          ['Expected alerts found',result.metrics.truePositive],
+          ['Unexpected alerts',result.metrics.falsePositive]
+         ].map(([label,value])=><div key={label}
+          className="border border-slate-200 bg-white rounded p-2">
+          <p className="text-[10px] text-slate-500">{label}</p>
+          <p className="text-lg font-bold text-slate-800 tabular-nums">{value}</p>
+         </div>)}
+        </div>
+        <p className="rounded border border-amber-200 bg-amber-50 text-amber-900 text-[11px] p-2">
+         {result.notice} Synthetic self-test success cannot establish operational detection effectiveness.
+        </p>
+        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+         {result.rules.map(rule=><div key={rule.id}
+          className="rounded bg-white border border-slate-200 p-2 space-y-1">
+          <p className="text-xs font-semibold text-slate-800">{rule.id} · {rule.label}</p>
+          <p className="text-[11px] text-slate-600">ATT&CK {rule.technique} · {rule.trigger}</p>
+          <p className="text-[11px] text-slate-600">{rule.recommendation}</p>
+         </div>)}
+        </div>
+        <p className="text-[11px] text-slate-600">
+         Results: TP {result.metrics.truePositive}, FP {result.metrics.falsePositive},
+         TN {result.metrics.trueNegative}, FN {result.metrics.falseNegative}.
+         No real evidence ingested or tools executed.
+        </p>
+        <button type="button" onClick={()=>{
+         const blob=new Blob([JSON.stringify(result,null,2)],{type:'application/json'});
+         const url=URL.createObjectURL(blob),anchor=document.createElement('a');
+         anchor.href=url;anchor.download='asura-synthetic-defence-drill.json';
+         anchor.click();URL.revokeObjectURL(url);
+        }} className="border bg-white text-slate-800 px-3 py-2 rounded text-xs font-semibold">
+         Export synthetic validation JSON
+        </button>
+       </div>}
+       {result.action==='integration-matrix'&&<div className="space-y-2">
+        <p className="text-xs font-semibold">{result.toolCount} mapped references · {result.connectedCount} connected</p>
+        <p className="text-[11px] text-amber-800">{result.note}</p>
+        <div className="max-h-80 overflow-y-auto space-y-2">
+         {result.integrations.map(item=><div key={item.repository}
+          className="rounded border bg-white p-2 space-y-1">
+          <p className="font-semibold text-xs text-slate-800 break-all">{item.repository}</p>
+          <p className="text-[11px] text-slate-600">{item.defensiveUse}</p>
+          <p className="font-mono text-[10px] text-amber-700">REFERENCE ONLY · NOT INSTALLED</p>
+         </div>)}
+        </div>
        </div>}
        {result.action==='verify-reference'&&<div className="text-xs space-y-1 text-slate-700">
         <p><strong>GitHub:</strong> {result.repository}</p>
