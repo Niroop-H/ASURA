@@ -12,7 +12,8 @@
     "test:operational": "node --test tests/operationalFeeds.test.cjs tests/expandedFeeds.test.cjs tests/wave2Feeds.test.cjs tests/wave3Feeds.test.cjs",
     "test:vision": "node --test tests/visionRouting.test.cjs",
     "test:news": "node --test tests/newsRouting.test.cjs tests/quotaHandling.test.cjs",
-    "test:red-team": "node --test tests/redTeamReadOnly.test.cjs tests/defenceValidationEngine.test.cjs"
+    "test:red-team": "node --test tests/redTeamReadOnly.test.cjs tests/defenceValidationEngine.test.cjs",
+    "test:blue-team": "node --test tests/blueTeamEngine.test.cjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
