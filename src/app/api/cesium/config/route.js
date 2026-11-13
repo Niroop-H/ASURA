@@ -9,14 +9,20 @@ export async function GET(){
  const response = NextResponse.json({
    success:true,
    ionEnabled:configured,
+   tokenConfigured:configured,
+   tokenPermissionsVerified:false,
    publicViewerToken:configured ? token : null,
-   terrain:configured ? 'Cesium World Terrain (access-dependent)' : 'WGS84 ellipsoid',
-   buildings:configured ? 'Optional Cesium OSM Buildings (access-dependent)' : 'Not configured',
-   warning: configured
-    ? 'Use only domain-restricted read-only Cesium ion viewer tokens in this public endpoint.'
-    : 'No dedicated public Cesium ion viewer token configured; 3D globe operates without elevated terrain or 3D building tiles.',
+   terrain:configured ? 'Cesium World Terrain (requires asset entitlement)' : 'WGS84 ellipsoid',
+   buildings:configured
+    ? 'Cesium OSM Buildings 3D Tiles (requires asset 96188 permission)'
+    : 'OpenStreetMap footprint extrusion fallback (experimental, bounded availability)',
+   osmFootprintFallback:true,
+   requiredBuildingAssetId:96188,
+   warning:configured
+    ? 'A viewer token is present, but permissions have NOT been verified. Use a read-only, URL-restricted token with access to Cesium OSM Buildings asset 96188.'
+    : 'No dedicated public Cesium ion viewer token. Click 3D buildings at neighbourhood zoom to try approximate public OpenStreetMap footprints without a token.',
  });
- response.headers.set('Cache-Control','public, s-maxage=3600, stale-while-revalidate=300');
+ response.headers.set('Cache-Control','public, max-age=0, s-maxage=60, stale-while-revalidate=60');
  response.headers.set('X-Content-Type-Options','nosniff');
  return response;
 }
