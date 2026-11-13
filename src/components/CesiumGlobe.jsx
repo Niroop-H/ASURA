@@ -54,11 +54,13 @@ function makeBasemap(C,source,date){
 const toCart=(C,r,alt=0)=>C.Cartesian3.fromDegrees(r.lon,r.lat,alt);
 export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=[12.9716,77.5946],onSelect=null,onViewportCenter=null}){
  const mount=useRef(null),viewerRef=useRef(null),cesiumRef=useRef(null),idLookup=useRef(new Map());
- const tileset=useRef(null),onViewport=useRef(onViewportCenter);
+ const tileset=useRef(null),osmOverlay=useRef(null),onViewport=useRef(onViewportCenter);
  const [ready,setReady]=useState(false),[error,setError]=useState('');
  const [mode,setMode]=useState('satellite'),[catalog,setCatalog]=useState(null);
  const [imageDate,setImageDate]=useState(''),[sceneInfo,setSceneInfo]=useState('WGS84 3D globe');
- const [buildings,setBuildings]=useState(false),[terrain,setTerrain]=useState(false),[ionStatus,setIonStatus]=useState('Checking Cesium ion access');
+ const [buildings,setBuildings]=useState(false),[terrain,setTerrain]=useState(false),
+  [buildingBusy,setBuildingBusy]=useState(false),[buildingSource,setBuildingSource]=useState('none'),
+  [ionStatus,setIonStatus]=useState('Checking Cesium ion access');
  const [selected,setSelected]=useState(null),[clockTick,setClockTick]=useState(Date.now());
  const planes=useMemo(()=>records.filter(r=>r.sourceType==='flights'&&validPoint(r)),[records]);
  const newestObservation=useMemo(()=>{
@@ -84,7 +86,7 @@ export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=
    if(publicConfig.ionEnabled&&publicConfig.publicViewerToken){
     C.Ion.defaultAccessToken=publicConfig.publicViewerToken;
     setIonStatus('Viewer-scoped Cesium ion token configured');
-   } else setIonStatus('No public Cesium ion token: geometric WGS84 globe active');
+   } else setIonStatus('No public Cesium ion token. Approximate OSM footprint buildings are available when zoomed in.');
    const viewer=new C.Viewer(mount.current,{
     baseLayer:false,baseLayerPicker:false,
     geocoder:false,homeButton:true,navigationHelpButton:false,
@@ -238,18 +240,94 @@ export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=
  },[routeOverlay?.focusAirport?.lat,routeOverlay?.focusAirport?.lon,ready]);
  const enableBuildings=async()=>{
   const viewer=viewerRef.current,C=cesiumRef.current;
-  if(!viewer||!C)return;
-  if(tileset.current){
-   viewer.scene.primitives.remove(tileset.current);
-   tileset.current=null;setBuildings(false);viewer.scene.requestRender();return;
+  if(!viewer||!C||buildingBusy||viewer.isDestroyed())return;
+  // Toggle off BOTH kinds of geometry, so changing provider never stacks
+  // multiple copies of a building or leaves primitives behind.
+  if(tileset.current||osmOverlay.current){
+   if(tileset.current&&viewer.scene.primitives.contains(tileset.current))
+    viewer.scene.primitives.remove(tileset.current);
+   if(osmOverlay.current)viewer.dataSources.remove(osmOverlay.current,true);
+   tileset.current=null;osmOverlay.current=null;
+   setBuildings(false);setBuildingSource('none');
+   setIonStatus('3D building layer hidden.');viewer.scene.requestRender();return;
   }
+  setBuildingBusy(true);
+  let ionError=null;
   try{
-   const cfg=await fetch('/api/cesium/config').then(r=>r.json());
-   if(!cfg.ionEnabled)throw new Error('Configure CESIUM_ION_PUBLIC_TOKEN with read access to Cesium OSM Buildings.');
-   const buildingTiles=await C.createOsmBuildingsAsync();
-   tileset.current=viewer.scene.primitives.add(buildingTiles);
-   setBuildings(true);viewer.scene.requestRender();
-  }catch(e){setIonStatus('3D buildings: '+e.message);}
+   const configResponse=await fetch('/api/cesium/config',{cache:'no-store'});
+   const cfg=configResponse.ok?await configResponse.json():{ionEnabled:false};
+   if(cfg.ionEnabled&&cfg.publicViewerToken){
+    C.Ion.defaultAccessToken=cfg.publicViewerToken;
+    try{
+     const buildingTiles=await C.createOsmBuildingsAsync();
+     if(viewerRef.current!==viewer||viewer.isDestroyed())return;
+     tileset.current=viewer.scene.primitives.add(buildingTiles);
+     setBuildings(true);setBuildingSource('cesium-ion');
+     setIonStatus('Cesium OSM Buildings 3D Tiles requested (asset 96188). Tiles may take time to stream.');
+     viewer.scene.requestRender();
+     return;
+    }catch(error){
+     const detail=String(error?.message||'unavailable').slice(0,190);
+     ionError='Cesium ion buildings unavailable: '+detail+'. ';
+    }
+   }
+   // Token-free fallback is intentionally small, click-initiated and
+   // labelled as approximate OSM extrusions, not real 3D survey data.
+   const cameraAltitude=viewer.camera.positionCartographic?.height;
+   if(!Number.isFinite(cameraAltitude)||cameraAltitude>10000)
+    throw Error((ionError||'')+'Zoom into a neighbourhood (camera altitude below 10 km), then click 3D buildings again.');
+   const middle=new C.Cartesian2(viewer.canvas.clientWidth/2,viewer.canvas.clientHeight/2);
+   const ground=viewer.camera.pickEllipsoid(middle,viewer.scene.globe.ellipsoid);
+   const cart=ground?C.Cartographic.fromCartesian(ground):null;
+   if(!cart)throw Error('Move the globe to a visible map location before loading nearby buildings.');
+   const lat=C.Math.toDegrees(cart.latitude),lon=C.Math.toDegrees(cart.longitude);
+   const url='/api/cesium/buildings?lat='+lat.toFixed(5)+'&lon='+lon.toFixed(5);
+   const response=await fetch(url,{cache:'no-store'});
+   const data=await response.json();
+   if(!response.ok||!data.success)throw Error((ionError||'')+(data.error||'OpenStreetMap building data unavailable.'));
+   if(viewerRef.current!==viewer||viewer.isDestroyed())return;
+   if(!Array.isArray(data.buildings)||data.buildings.length===0){
+    setIonStatus((ionError||'')+'No mapped building footprints nearby. Try a denser city block or configure Cesium ion.');
+    return;
+   }
+   const layer=new C.CustomDataSource('ASURA OSM footprint extrusions');
+   const material=C.Color.fromCssColorString('#9ca3af').withAlpha(.88);
+   for(const feature of data.buildings.slice(0,120)){
+    if(!Array.isArray(feature.outline)||feature.outline.length<3)continue;
+    const coords=feature.outline.flatMap(p=>[p[0],p[1]]);
+    if(!coords.every(Number.isFinite))continue;
+    const first=feature.outline[0];
+    const localGround=viewer.scene.globe.getHeight(C.Cartographic.fromDegrees(first[0],first[1]))||0;
+    const groundHeight=Math.max(-200,Math.min(6500,localGround));
+    layer.entities.add({
+     id:'osm:'+feature.id,
+     name:'OSM building footprint '+feature.id,
+     polygon:{
+      hierarchy:C.Cartesian3.fromDegreesArray(coords),
+      height:groundHeight,
+      extrudedHeight:groundHeight+feature.heightMeters,
+      material,outline:true,
+      outlineColor:C.Color.fromCssColorString('#e2e8f0').withAlpha(.65),
+     },
+    });
+   }
+   await viewer.dataSources.add(layer);
+   if(viewerRef.current!==viewer||viewer.isDestroyed()){
+    if(!viewer.isDestroyed())viewer.dataSources.remove(layer,true);
+    return;
+   }
+   osmOverlay.current=layer;
+   setBuildings(true);setBuildingSource('osm-extrusions');
+   setIonStatus('OSM footprint extrusions: '+layer.entities.values.length+
+    ' nearby buildings · '+data.heightsMeasured+' OSM heights, '+
+    data.heightsEstimated+' level-based estimates, '+
+    data.heightsIllustrative+' illustrative 9m heights. NOT surveyed 3D models. © OpenStreetMap contributors.');
+   viewer.scene.requestRender();
+  }catch(error){
+   setIonStatus('3D buildings unavailable: '+String(error?.message||'Unknown error').slice(0,300));
+  }finally{
+   setBuildingBusy(false);
+  }
  };
  const tilt=angle=>{
   const viewer=viewerRef.current,C=cesiumRef.current;
@@ -292,7 +370,14 @@ export default function CesiumGlobe({records=[],routeOverlay=null,initialCenter=
   <div className="p-3 flex flex-wrap gap-2 items-center text-xs border-t border-slate-700">
    <button onClick={()=>tilt(-90)} type="button" className="border border-slate-600 rounded px-3 py-2">Top-down</button>
    <button onClick={()=>tilt(-48)} type="button" className="border border-slate-600 rounded px-3 py-2">Oblique 3D</button>
-   <button onClick={enableBuildings} type="button" className="border border-slate-600 rounded px-3 py-2">{buildings?'Hide buildings':'3D buildings (ion)'}</button>
+   <button onClick={enableBuildings} type="button" disabled={!ready||buildingBusy}
+    aria-pressed={buildings} aria-label={buildings?'Hide 3D buildings':'Show 3D buildings'}
+    className="border border-slate-600 rounded px-3 py-2 disabled:opacity-50">
+    {buildingBusy?'Loading 3D buildings…':buildings?'Hide 3D buildings':'3D buildings'}
+   </button>
+   {buildings&&<span className="text-[10px] font-mono border border-slate-600 rounded px-2 py-1">
+    {buildingSource==='cesium-ion'?'Cesium ion 3D Tiles':'OSM approximate extrusion'}
+   </span>}
    <span className="text-slate-400">{ionStatus}</span>
   </div>
   {selected&&<div className="px-4 py-3 border-t border-slate-700 text-xs flex flex-wrap gap-4">
