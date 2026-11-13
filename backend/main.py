@@ -6,16 +6,40 @@ All other routes require signed server-to-server requests.
 import json
 import os
 import time
+from urllib.parse import urlsplit
+
+import httpx
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from autonomous_orchestrator import approve, run_directive
-from security import AuthenticationError, sign_event, verify_request
+from security import AuthenticationError, sign_event, verify_request, sign_request
 from tool_registry import list_tool_status
 
 app = FastAPI(title="ASURA DEFENSE CORE", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+async def optional_vercel_callback(event: dict):
+    """Best-effort secondary signed callback; main SSE audit path is primary."""
+    url = os.getenv("ASURA_WEBHOOK_URL", "")
+    if not url:
+        return
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".vercel.app") or parsed.path != "/api/defense/webhook" or parsed.query or parsed.fragment or parsed.username or parsed.password:
+        return
+    body = json.dumps({"origin": "ASURA-DEFENSE-CORE", "event": event},
+                      separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    try:
+        headers = sign_request("POST", "/api/defense/webhook", body)
+        async with httpx.AsyncClient(timeout=1.5, follow_redirects=False, trust_env=False) as client:
+            await client.post(url, content=body,
+                              headers={"Content-Type": "application/json", **headers})
+    except (httpx.HTTPError, AuthenticationError):
+        # Signed progress streaming still delivers the event. Callback errors
+        # are not represented as verified audit deliveries.
+        return
 _HEALTH = b'{"status":"ok","engine":"ASURA-DEFENSE-CORE"}'
 
 
@@ -81,6 +105,7 @@ async def execute(request: Request):
 
     async def events():
         async for entry in run_directive(prompt, operator):
+            await optional_vercel_callback(entry)
             event_body = json.dumps(entry, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
             wrapped = json.dumps({"body": event_body, "sig": sign_event(event_body)},
                                  separators=(",", ":"), ensure_ascii=False)
