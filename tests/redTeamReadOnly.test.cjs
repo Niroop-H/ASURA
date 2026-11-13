@@ -3,8 +3,12 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const dataUri=content=>'data:text/javascript;base64,'+Buffer.from(content).toString('base64');
 const catalogUri=dataUri(fs.readFileSync('src/lib/redTeamCatalog.js','utf8'));
-const readOnlySource=fs.readFileSync('src/lib/redTeamReadOnly.js','utf8')
+const engineSource=fs.readFileSync('src/lib/defenceValidationEngine.js','utf8')
  .replace("from './redTeamCatalog.js';","from "+JSON.stringify(catalogUri)+";");
+const engineUri=dataUri(engineSource);
+const readOnlySource=fs.readFileSync('src/lib/redTeamReadOnly.js','utf8')
+ .replace("from './redTeamCatalog.js';","from "+JSON.stringify(catalogUri)+";")
+ .replace("from './defenceValidationEngine.js';","from "+JSON.stringify(engineUri)+";");
 const readOnlyUri=dataUri(readOnlySource);
 const catalog=import(catalogUri);
 const actions=import(readOnlyUri);
@@ -41,7 +45,7 @@ test('catalogue search does not infer installed tooling or execute anything',asy
 test('allowlisted commands are read-only and unsupported executable commands fail closed',async()=>{
  const {RED_TEAM_ACTIONS,runRedTeamReadOnlyAction,SAFETY_CONTRACT}=await actions;
  assert.deepEqual(RED_TEAM_ACTIONS.map(x=>x.id),
-  ['inventory','search','assessment-plan','verify-reference']);
+  ['inventory','search','assessment-plan','verify-reference','defence-drill','integration-matrix']);
  const inv=runRedTeamReadOnlyAction({action:'inventory'});
  assert.equal(inv.success,true);
  assert.equal(inv.summary.toolCount,50);
@@ -111,6 +115,8 @@ test('HTTP endpoint exposes only safe commands, never arbitrary execution',async
   .replace("import {NextResponse} from 'next/server';",'const NextResponse=Response;')
   .replace("import {redTeamCatalogSummary} from '@/lib/redTeamCatalog';",
    'const {redTeamCatalogSummary}=await import('+JSON.stringify(catalogUri)+');')
+  .replace("import {DEFENCE_SCENARIOS,DEFENCE_ENGINE_VERSION,DEFENCE_ENGINE_POSTURE} from '@/lib/defenceValidationEngine';",
+   'const {DEFENCE_SCENARIOS,DEFENCE_ENGINE_VERSION,DEFENCE_ENGINE_POSTURE}=await import('+JSON.stringify(engineUri)+');')
   .replace("import {RED_TEAM_ACTIONS,SAFETY_CONTRACT,\n runRedTeamReadOnlyAction,verifyRedTeamReference} from '@/lib/redTeamReadOnly';",
    'const {RED_TEAM_ACTIONS,SAFETY_CONTRACT,runRedTeamReadOnlyAction,verifyRedTeamReference}=await import('+JSON.stringify(readOnlyUri)+');');
  const {GET,POST}=await import(dataUri(transformed));

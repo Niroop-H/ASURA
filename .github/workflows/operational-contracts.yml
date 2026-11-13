@@ -9,6 +9,8 @@ on:
       - 'tests/visionRouting.test.cjs'
       - 'tests/newsRouting.test.cjs'
       - 'tests/redTeamReadOnly.test.cjs'
+      - 'tests/defenceValidationEngine.test.cjs'
+      - 'src/lib/defenceValidationEngine.js'
       - 'src/lib/redTeamCatalog.js'
       - 'src/lib/redTeamReadOnly.js'
       - 'src/app/api/red-team/route.js'
