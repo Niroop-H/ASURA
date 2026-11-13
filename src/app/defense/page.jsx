@@ -142,7 +142,9 @@ export default function DefenseOperationsConsole(){
   const payload={
    generatedAt:new Date().toISOString(),
    directiveSha256:'Not included in browser report; see hashed server events',
-   events,toolMetadata:tools?.readiness||null,
+   events:events.map(e=>e.type==='approval'?{
+    ...e,approval:{...e.approval,approvalToken:'[REDACTED]'}
+   }:e),toolMetadata:tools?.readiness||null,
    auditLimitations:'In-process Merkle root only. No persistent independent anchoring.',
   };
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
