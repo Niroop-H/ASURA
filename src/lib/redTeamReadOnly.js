@@ -2,6 +2,7 @@ import {
  RED_TEAM_TOOLS,RED_TEAM_CATEGORIES,
  redTeamCatalogSummary,searchRedTeamTools,getRedTeamTool,
 } from './redTeamCatalog.js';
+import {runDefenceDrill,defenceIntegrationMatrix} from './defenceValidationEngine.js';
 
 export const RED_TEAM_ACTIONS=Object.freeze([
  {id:'inventory',label:'Summarize all 50 reference repositories',
@@ -12,11 +13,16 @@ export const RED_TEAM_ACTIONS=Object.freeze([
   description:'Produces a read-only preparation and reporting checklist; no target access.'},
  {id:'verify-reference',label:'Check a repository on GitHub',
   description:'Fetches metadata for exactly one catalogued GitHub repository. This does not install or test the tool.'},
+ {id:'defence-drill',label:'Run autonomous defensive lab self-tests',
+  description:'Evaluate safe detection rules against checked-in synthetic events. No external network, credentials or targets.'},
+ {id:'integration-matrix',label:'Review all 50 defensive integration contracts',
+  description:'Generate a 50-repository defensive use and approval matrix; no third-party code is executed.'},
 ]);
 
 export const SAFETY_CONTRACT=Object.freeze({
  mode:'read-only',
- runtime:'serverless-reference-review',
+ runtime:'serverless-reference-review-and-synthetic-defence-drills',
+ syntheticDefenceDrills:true,
  arbitraryCommands:false,
  remoteShell:false,
  downloadedCodeExecution:false,
@@ -30,7 +36,9 @@ export const SAFETY_CONTRACT=Object.freeze({
 
 const safeString=(value,max=90)=>String(value??'').replace(/[\u0000-\u001f\u007f<>]/g,'').trim().slice(0,max);
 const CAT_IDS=new Set(RED_TEAM_CATEGORIES.map(x=>x.id));
-export function runRedTeamReadOnlyAction({action,query='',category='all',scope=''}={}){
+export function runRedTeamReadOnlyAction({action,query='',category='all',scope='',scenario='all'}={}){
+ if(action==='defence-drill')return runDefenceDrill(scenario);
+ if(action==='integration-matrix')return defenceIntegrationMatrix();
  if(!['inventory','search','assessment-plan'].includes(action))
   return {success:false,status:400,error:'Command is not an approved read-only action. Third-party attack tools cannot be executed from this workspace.',actions:RED_TEAM_ACTIONS};
  const now=new Date().toISOString();
