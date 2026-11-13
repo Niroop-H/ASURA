@@ -52,9 +52,18 @@ def clean_indicator(value: str | None) -> str | None:
     if len(token) > 160 or not token or any(x in token for x in ("/", "\\", "@", "?", "#", " ", "\n")):
         return None
     try:
-        return str(ipaddress.ip_address(token))
+        ip = ipaddress.ip_address(token)
+        docs = [
+            ipaddress.ip_network("192.0.2.0/24"),
+            ipaddress.ip_network("198.51.100.0/24"),
+            ipaddress.ip_network("203.0.113.0/24"),
+            ipaddress.ip_network("2001:db8::/32"),
+        ]
+        return str(ip) if ip.is_global or any(ip in network for network in docs) else None
     except ValueError:
         pass
+    if token.endswith((".internal", ".localhost", ".local", ".invalid", ".test")):
+        return None
     if len(token) > 253 or not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", token):
         return None
     return token
@@ -121,7 +130,6 @@ async def bridge_readonly(item: dict, args: dict):
     }, separators=(",", ":"), sort_keys=True).encode("utf-8")
     # This is an *integration contract*. Until a provider-compatible bridge
     # is actually installed and tested, upstream might return 404/503.
-    from security import sign_request
     signature = __import__("hmac").new(os.environ["SOC_TUNNEL_SECRET"].encode(), body,
                                       hashlib.sha256).hexdigest()
     try:
