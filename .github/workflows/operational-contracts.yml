@@ -14,6 +14,10 @@ on:
       - 'src/lib/blueTeamCatalog.js'
       - 'src/lib/blueTeamEngine.js'
       - 'src/app/blue-team/page.jsx'
+      - 'src/components/CesiumGlobe.jsx'
+      - 'src/app/api/cesium/**'
+      - 'src/lib/osmBuildings.js'
+      - 'tests/cesiumBuildings.test.cjs'
       - 'backend/**'
       - 'scripts/verify-defense-e2e.mjs'
       - 'render.yaml'
@@ -101,5 +105,7 @@ jobs:
           print(f'Warm Docker memory: {rss:.1f} MiB (target <200 MiB)')
           assert rss < 200, 'Development warm-container memory target failed'
           PY
+      - name: Cesium ion and OSM building-footprint fallback tests
+        run: npm run test:cesium
       - name: Build
         run: npm run build
