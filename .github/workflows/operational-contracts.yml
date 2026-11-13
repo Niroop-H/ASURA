@@ -8,6 +8,12 @@ on:
       - 'src/components/AgentWorkspace.jsx'
       - 'tests/visionRouting.test.cjs'
       - 'tests/newsRouting.test.cjs'
+      - 'tests/redTeamReadOnly.test.cjs'
+      - 'src/lib/redTeamCatalog.js'
+      - 'src/lib/redTeamReadOnly.js'
+      - 'src/app/api/red-team/route.js'
+      - 'src/app/red-team/page.jsx'
+      - 'src/components/Sidebar.jsx'
       - 'tests/quotaHandling.test.cjs'
       - 'src/lib/newsQuery.js'
       - 'src/lib/liveFeeds.js'
@@ -44,5 +50,7 @@ jobs:
         run: npm run test:vision
       - name: News retrieval and quota regression tests
         run: npm run test:news
+      - name: Read-only Red Team catalogue tests
+        run: npm run test:red-team
       - name: Build
         run: npm run build
