@@ -20,6 +20,8 @@ services:
         sync: false
       - key: SOC_TUNNEL_SECRET
         sync: false
+      - key: ASURA_WEBHOOK_URL
+        sync: false
       - key: ASURA_ENABLE_CONTAINMENT
         value: "false"
       - key: ASURA_ASSET_ALLOWLIST
