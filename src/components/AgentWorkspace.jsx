@@ -172,6 +172,7 @@ export default function AgentWorkspace(){
    const d=await r.json();
    setMessages(m=>[...m,{id:Date.now()+'a',role:'assistant',content:d.answer||'',
     error:d.success?null:d.error||'AI response unavailable',model:d.model||null,
+    visionFallbackActive:d.visionFallbackActive===true,visionModelTier:d.visionModelTier||null,
     records:d.records||[],statuses:d.statuses||[],snapshotReviewed:d.snapshotReviewed||null,
     webResearch:d.webResearch||null,
     checkedAt:d.checkedAt||null,generatedAt:d.generatedAt||null,
@@ -211,7 +212,7 @@ export default function AgentWorkspace(){
     </div>
     <div className="flex gap-2 items-center">
      <span className={'rounded px-2 py-1 text-xs border '+(health?.ready?'bg-emerald-50 border-emerald-200 text-emerald-800':'bg-amber-50 border-amber-200 text-amber-900')}>
-       {health===null?'Checking AI provider…':health.ready?'AI online':'Provider attention needed'}
+       {health===null?'Checking AI provider…':health.ready?'Text AI available':'Provider attention needed'}
      </span>
      <button type="button" onClick={newChat} className="border rounded px-3 py-2 text-xs flex items-center gap-1">
       <Plus size={14}/> New chat
@@ -225,9 +226,18 @@ export default function AgentWorkspace(){
    <div className="flex-1 px-4 md:px-6 py-6 bg-slate-50 min-h-[380px] max-h-[68vh] overflow-y-auto space-y-5">
     {linkedCamera&&health?.visionAvailable===false&&<p role="status"
      className="rounded border border-amber-300 bg-amber-50 text-amber-950 p-3 text-xs">
-     Groq's larger-than-50B vision model (Muse Spark Open 816B) requires
-     preview access and is unavailable on this account. No smaller model
-     is substituted. General text chat and public-source research work independently.
+     Snapshot analysis is unavailable: {health.visionNote||'No permitted image-capable model is listed for this Groq key.'}
+     {health.visionPolicy==='preview-only'?
+      ' Your server currently requires Muse Spark preview access.':
+      ' Check the Groq API key and model permissions.'}
+    </p>}
+    {linkedCamera&&health?.visionAvailable&&<p role="status"
+     className="rounded border border-sky-200 bg-sky-50 text-sky-950 p-3 text-xs">
+     Snapshot analysis model selected: <strong>{health.visionModel}</strong>.
+     {health.visionFallbackActive?
+      ' This is Qwen 27B multimodal, not Muse Spark 816B or GPT-OSS 120B.':
+      ' Muse preview model is listed for this account.'}
+     {' '}Only one public still is reviewed per question. Model listing does not guarantee successful inference or accuracy.
     </p>}
     {linkedCamera&&<div className="bg-sky-50 border border-sky-200 rounded-lg p-4 space-y-3" aria-label="Selected public camera snapshot">
       <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -297,6 +307,7 @@ export default function AgentWorkspace(){
       {msg.error&&<p role="alert" className="bg-amber-50 text-amber-900 p-3 text-xs rounded border border-amber-100">{msg.error}</p>}
       {msg.role==='assistant'&&<div className="pt-1 flex flex-wrap gap-3 items-center">
        {msg.model&&<span className="text-[11px] text-slate-600 font-medium">Model: {msg.model}</span>}
+       {msg.visionModelTier&&<span className="text-[11px] text-slate-600">Image interpretation: {msg.visionFallbackActive?'Qwen 27B multimodal':'Muse preview multimodal'}</span>}
        {msg.webResearch?.requested&&<span className={'text-[11px] '+
          (msg.webResearch.executedVerified?'text-emerald-800':'text-amber-800')}>
         {msg.webResearch.executedVerified?'Public web tool executed':'Web tool offered; not verified'}
@@ -388,7 +399,7 @@ export default function AgentWorkspace(){
       className="p-3 bg-sky-700 text-white rounded-lg disabled:opacity-40"><Send size={19}/></button>
     </form>
     <p className="text-[11px] text-slate-500">
-     Primary model: GPT-OSS 120B · Public observations and websites may be delayed or
+     Text model: GPT-OSS 120B · Image model: {health?.visionModel||'not confirmed'} · Public observations and websites may be delayed or
      incomplete. Verify original sources for consequential decisions.
      Conversation history remains in this browser tab only.
     </p>
@@ -398,7 +409,8 @@ export default function AgentWorkspace(){
    <section className="defense-card p-4 space-y-3">
     <h3 className="font-semibold text-sm flex items-center gap-2"><Activity size={16} className="text-sky-700"/> Connected intelligence</h3>
     <p className="text-xs text-slate-500">
-     Active large model: {health?.model||'Checking Groq access'}.
+     Text model: {health?.model||'Checking Groq access'}.
+     Image model: {health?.visionModel||'Not currently available'}.
      On-demand public browser research is offered in Auto and Live modes.
      Connected adapters report their own timestamps and partial coverage.
     </p>
@@ -407,7 +419,7 @@ export default function AgentWorkspace(){
       [Newspaper,'News headlines','Publisher reports · may be delayed'],
       [Plane,'Aircraft observations','Regional ADS-B · partial coverage'],
       [CloudSun,'Weather','Configured provider · city coverage varies'],
-      [Camera,'Public camera directories','Caltrans / TfL metadata, not live video analysis'],
+      [Camera,'Public camera directories','Authorized still frames; no continuous video analysis'],
       [Globe2,'Earth observations','NASA EONET / USGS'],
       [MapPin,'Airport directory','Global facility records · not live status'],
      ].map(([Icon,title,desc])=><div key={title} className="flex gap-2 items-start">
