@@ -63,7 +63,7 @@ export function renderEndpoint(path){
 export function requireDefenseOperator(request){
  const expected=process.env.ASURA_DEFENSE_ACCESS_TOKEN||'';
  const supplied=request.headers.get('x-asura-operator-token')||'';
- if(expected.length<32||supplied.length!==expected.length||
+ if(Buffer.byteLength(expected)<32||Buffer.byteLength(supplied)!==Buffer.byteLength(expected)||
     !crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(supplied)))return null;
  return sha256(Buffer.from(supplied)).slice(0,48);
 }
