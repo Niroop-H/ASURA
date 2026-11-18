@@ -66,3 +66,15 @@ See docs/TEST_STATUS.md. Build and four regression tests pass; production HTTP s
 - `src/lib/auditLogger.js`
 - `src/lib/complianceData.js`
 - `tests/data-integrity.test.mjs`
+
+## 2026-11-18 continuation — browser dictation
+
+The current main (5f627091a48f5cbbb4c8c520ba9c5bcb6cbbb84b) already contains AgentWorkspace, provider routing, weather/news retrieval, and Cesium work added after the earlier audit. The preceding audit is historical, not a current feature inventory. The unfinished older civilian-chat worktree was not overlaid onto main.
+
+Added optional microphone dictation to the existing message composer. Speech enters editable draft text only; it never auto-submits. Supports browser-selected English (India/US), Hindi and Kannada, subject to browser/service availability. Permission errors and unavailable browsers retain the typing fallback. Recording is cancelled on send, new chat, tab hide and component teardown; duplicate/late results are ignored. The UI discloses that the browser may use an external speech provider. ASURA adds no audio storage, upload endpoint, tracking, or provider-key changes.
+
+Files: src/components/VoiceInput.jsx, src/lib/dictation.mjs, src/components/AgentWorkspace.jsx, tests/dictation.test.mjs, ASURA_HANDOFF.md.
+
+Validation: five Node regression tests pass for final-only deduplication, stop/final result, cancellation, disposal and denied permission. Actual microphone transcription and supported languages need checking on the user's browser; automated tests simulate the browser recognition events. Existing provider credentials have not been retested in this change.
+
+Production build: `npm run build` passed (48 routes). Existing warnings: missing metadataBase and vulnerable pinned Next.js 14.2.18. These are not resolved by the dictation change. `git diff --check` passed.

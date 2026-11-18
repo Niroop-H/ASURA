@@ -3,6 +3,7 @@
 import {useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
 import RichAgentAnswer from './RichAgentAnswer';
+import VoiceInput from './VoiceInput';
 import {
  Send,LoaderCircle,Plus,MessageSquareText,Activity,Camera,Newspaper,Plane,CloudSun,
  Globe2,ExternalLink,ChevronDown,ShieldAlert,Search,MapPin,Database,Copy,Check
@@ -109,6 +110,7 @@ const ENGINE_LABEL='Quantum[-0-]Brain D25@1007';
 export default function AgentWorkspace(){
  const [messages,setMessages]=useState([]);
  const [draft,setDraft]=useState('');
+ const [dictationReset,setDictationReset]=useState(0);
  const [mode,setMode]=useState('auto');
  const [webResearch,setWebResearch]=useState(true);
  const [forceWebResearch,setForceWebResearch]=useState(false);
@@ -155,6 +157,7 @@ export default function AgentWorkspace(){
  const send=async(message,extra={})=>{
   const question=String(message||'').trim();
   if(!question||busy)return;
+  setDictationReset(value=>value+1);
   const previous=messages.map(m=>({role:m.role,content:m.content}));
   // A selected snapshot is context; no AI request without the user's message.
   const camera=linkedCamera&&useSelectedSnapshot?linkedCamera:null;
@@ -194,6 +197,7 @@ export default function AgentWorkspace(){
   requestAnimationFrame(()=>input.current?.focus());
  };
  const newChat=()=>{
+  setDictationReset(value=>value+1);
   controller.current?.abort();controller.current=null;
   setMessages([]);setDraft('');setBusy(false);
   setLinkedCamera(null);setUseSelectedSnapshot(true);input.current?.focus();
@@ -392,6 +396,8 @@ export default function AgentWorkspace(){
     {linkedCamera&&useSelectedSnapshot&&<p className="text-xs text-sky-800 font-medium flex items-center gap-2">
       <Camera size={14}/> Your next question will include the selected public snapshot.
     </p>}
+    <VoiceInput disabled={busy} resetKey={dictationReset}
+      onTranscript={text=>setDraft(previous=>(previous+(previous.trim()?' ':'')+text).slice(0,2500))}/>
     <form onSubmit={e=>{e.preventDefault();send(draft)}} className="flex gap-2 items-end">
      <textarea ref={input} value={draft} onChange={e=>setDraft(e.target.value)}
       onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(draft)}}}
